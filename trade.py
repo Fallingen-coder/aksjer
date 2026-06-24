@@ -5,6 +5,7 @@ from db import get_client
 
 MAX_POSITION_PCT    = 0.10  # maks 10% av total porteføljeverdi per aksje
 MAX_TOTAL_EXPOSURE  = 0.80  # maks 80% av porteføljen investert samtidig
+MAX_TRADES_PER_RUN  = 3     # maks antall nye kjøp per kjøring (sikkerhetssperre)
 MIN_CONFIDENCE      = 0.65  # ignorer signaler under 65% konfidens
 STOP_LOSS_PCT       = 0.07  # selg automatisk ved 7% tap
 MAX_PER_SECTOR      = 2     # maks antall posisjoner per sektor samtidig
@@ -323,6 +324,7 @@ def run():
             signals.append(s)
 
     print("\n--- Behandler signaler ---")
+    trades_this_run = 0
     for s in signals:
         ticker     = s["ticker"]
         signal     = s["signal"]
@@ -341,11 +343,15 @@ def run():
         holding = get_holding(sb, ticker)
 
         if signal == "BUY" and not holding:
+            if trades_this_run >= MAX_TRADES_PER_RUN:
+                print(f"  {ticker}: BUY avvist — maks {MAX_TRADES_PER_RUN} kjøp per kjøring nådd")
+                continue
             # Forsøk rotasjon hvis vi mangler ledig kapital
             rotated = rotate_if_needed(sb, ticker, confidence, total_value)
             if rotated:
                 total_value = portfolio_value(sb)  # oppdater etter salg
             buy(sb, ticker, price, reasoning, total_value)
+            trades_this_run += 1
         elif signal == "SELL" and holding:
             sell(sb, ticker, price, reasoning, force=False)
         else:

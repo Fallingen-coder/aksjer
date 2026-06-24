@@ -288,9 +288,15 @@ def run():
     intraday = is_market_hours()
     mode = "INTRADAG (15 min)" if intraday else "DAGLIG"
 
-    macro = get_macro(sb)
+    try:
+        macro = get_macro(sb)
+    except Exception as e:
+        print(f"⚠ Makrodata utilgjengelig: {e}")
+        macro = ""
+
     print(f"AI-analyse [{mode}] for {len(TICKERS)} tickers...\n")
-    print(f"Makro: {macro.replace(chr(10), ' | ')}\n")
+    if macro:
+        print(f"Makro: {macro.replace(chr(10), ' | ')}\n")
 
     signals = []
     for ticker in TICKERS:

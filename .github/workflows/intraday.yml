@@ -18,6 +18,22 @@ jobs:
   intraday:
     runs-on: ubuntu-latest
     steps:
+      - name: Varsle ved feil
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.NOTIFY_EMAIL }}
+          password: ${{ secrets.NOTIFY_EMAIL_PASSWORD }}
+          subject: "⚠ Aksje-workflow feilet — ${{ github.workflow }}"
+          to: fallinge90@gmail.com
+          from: Aksje-bot
+          body: |
+            GitHub Actions workflow "${{ github.workflow }}" feilet.
+            Kjøring: ${{ github.run_id }}
+            Se detaljer: https://github.com/Fallingen-coder/aksjer/actions/runs/${{ github.run_id }}
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
