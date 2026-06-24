@@ -16,6 +16,31 @@ GENERAL_FEEDS = [
     ("E24",    "https://e24.no/feed/rss/"),
 ]
 
+# NewsWeb-kategorier vi ønsker fra Oslo Børs
+# INSIDE INFORMATION, MANAGERS' TRANSACTION, HALF YEAR/ANNUAL REPORTS m.m.
+NEWSWEB_BASE = "https://newsweb.oslobors.no/rss/search?issuer={issuer}&category=&fromDate=&toDate=&market="
+
+# Mapping fra .OL ticker til NewsWeb issuer-kode
+NEWSWEB_ISSUERS = {
+    "EQNR.OL":  "EQNR",  "DNB.OL":   "DNB",   "TEL.OL":   "TEL",
+    "MOWI.OL":  "MOWI",  "ORK.OL":   "ORK",   "YAR.OL":   "YAR",
+    "SALM.OL":  "SALM",  "RECSI.OL": "RECSI", "AKER.OL":  "AKER",
+    "STB.OL":   "STB",   "NHY.OL":   "NHY",   "AKRBP.OL": "AKRBP",
+    "SCATC.OL": "SCATC", "HAFNI.OL": "HAFNI", "MPCC.OL":  "MPCC",
+    "GOGL.OL":  "GOGL",  "LSG.OL":   "LSG",   "AUSS.OL":  "AUSS",
+    "BORR.OL":  "BORR",  "SOFF.OL":  "SOFF",  "PGS.OL":   "PGS",
+    "TGS.OL":   "TGS",   "SUBC.OL":  "SUBC",  "OKEA.OL":  "OKEA",
+    "GJF.OL":   "GJF",   "ATEA.OL":  "ATEA",  "OPERA.OL": "OPERA",
+    "PEXIP.OL": "PEXIP", "NEXT.OL":  "NEXT",  "NRC.OL":   "NRC",
+    "NSKOG.OL": "NSKOG", "BWLPG.OL": "BWLPG", "BWE.OL":   "BWE",
+    "COOL.OL":  "COOL",  "FLNG.OL":  "FLNG",  "2020.OL":  "CECO",
+    "GRIEG.OL": "GRIEG", "NRS.OL":   "NRS",   "SATS.OL":  "SATS",
+    "XXL.OL":   "XXL",   "IDEX.OL":  "IDEX",  "EMGS.OL":  "EMGS",
+    "PHO.OL":   "PHO",   "KOG.OL":   "KOG",   "NONG.OL":  "NONG",
+    "ABG.OL":   "ABG",   "MING.OL":  "MING",  "BEWI.OL":  "BEWI",
+    "SMOP.OL":  "SMOP",  "LINK.OL":  "LINK",
+}
+
 TICKER_KEYWORDS = {
     "EQNR.OL":  ["equinor", "eqnr"],
     "DNB.OL":   ["dnb"],
@@ -86,6 +111,31 @@ def fetch_for_ticker(sb, client: anthropic.Anthropic, ticker: str) -> int:
                 saved += 1
         except Exception as e:
             print(f"    [{source_name}] feil: {e}")
+
+    # NewsWeb: offisielle børsmeldinger direkte fra selskapet
+    issuer = NEWSWEB_ISSUERS.get(ticker)
+    if issuer:
+        try:
+            url  = NEWSWEB_BASE.format(issuer=issuer)
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            feed = feedparser.parse(resp.text)
+            for entry in feed.entries[:20]:
+                title = entry.get("title", "").strip()
+                if not title or title in existing:
+                    continue
+                summary = summarize(client, title, entry.get("summary", ""))
+                sb.table("news").insert({
+                    "ticker":     ticker,
+                    "title":      title,
+                    "url":        entry.get("link", ""),
+                    "summary":    summary,
+                    "source":     "NewsWeb",
+                    "fetched_at": parse_date(entry),
+                }).execute()
+                existing.add(title)
+                saved += 1
+        except Exception as e:
+            print(f"    [NewsWeb] feil: {e}")
 
     return saved
 
