@@ -3,9 +3,10 @@
 import os
 from db import get_client
 
-MAX_POSITION_PCT = 0.20   # maks 20% av total porteføljeverdi per aksje
-MIN_CONFIDENCE   = 0.60   # ignorer signaler under 60% konfidens
-STOP_LOSS_PCT    = 0.08   # selg automatisk ved 8% tap
+MAX_POSITION_PCT = 0.05   # maks 5% av total porteføljeverdi per aksje
+MAX_TOTAL_EXPOSURE = 0.80 # maks 80% av porteføljen investert samtidig
+MIN_CONFIDENCE   = 0.65   # ignorer signaler under 65% konfidens
+STOP_LOSS_PCT    = 0.07   # selg automatisk ved 7% tap
 
 
 def portfolio_value(sb) -> float:
@@ -65,8 +66,14 @@ def buy(sb, ticker: str, price: float, reason: str, total_value: float):
     cash_row = sb.table("cash").select("amount").eq("id", 1).single().execute().data
     cash = float(cash_row["amount"])
 
+    # Ikke kjøp hvis total eksponering allerede er høy
+    invested = total_value - cash
+    if invested / total_value >= MAX_TOTAL_EXPOSURE:
+        print(f"  {ticker}: BUY avvist — maks eksponering nådd ({invested/total_value:.0%})")
+        return
+
     max_spend = total_value * MAX_POSITION_PCT
-    spend = min(max_spend, cash * 0.95)  # bruk maks 95% av kontanter
+    spend = min(max_spend, cash * 0.95)
 
     if spend < 100:
         print(f"  {ticker}: ikke nok kontanter (har {cash:.0f} NOK)")
