@@ -9,42 +9,19 @@ MIN_CONFIDENCE   = 0.65   # ignorer signaler under 65% konfidens
 STOP_LOSS_PCT    = 0.07   # selg automatisk ved 7% tap
 
 
-def portfolio_value(sb) -> float:
-    cash = float(sb.table("cash").select("amount").eq("id", 1).single().execute().data["amount"])
-    holdings = sb.table("portfolio").select("ticker, shares, avg_cost").execute().data
-    prices = {
-        r["ticker"]: r["close"]
-        for r in sb.table("prices")
-        .select("ticker, close")
-        .in_("ticker", [h["ticker"] for h in holdings] or ["_"])
-        .execute().data
-        if r["ticker"] in {
-            r2["ticker"]: r2["date"]
-            for r2 in sb.table("prices").select("ticker, date").execute().data
-        }
-    }
-    # Hent siste kurs per ticker
-    for h in holdings:
-        row = (
-            sb.table("prices")
-            .select("close")
-            .eq("ticker", h["ticker"])
-            .order("date", desc=True)
-            .limit(1)
-            .execute()
-            .data
-        )
-        if row:
-            prices[h["ticker"]] = row[0]["close"]
-
-    stock_value = sum(
-        float(h["shares"]) * prices.get(h["ticker"], float(h["avg_cost"]))
-        for h in holdings
-    )
-    return cash + stock_value
-
-
 def latest_price(sb, ticker: str) -> float | None:
+    # Prøv intradag-kurs først (ferskest), deretter dagskurs
+    row = (
+        sb.table("intraday_prices")
+        .select("close")
+        .eq("ticker", ticker)
+        .order("ts", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if row:
+        return float(row[0]["close"])
     row = (
         sb.table("prices")
         .select("close")
@@ -55,6 +32,18 @@ def latest_price(sb, ticker: str) -> float | None:
         .data
     )
     return float(row[0]["close"]) if row else None
+
+
+def portfolio_value(sb) -> float:
+    cash = float(sb.table("cash").select("amount").eq("id", 1).single().execute().data["amount"])
+    holdings = sb.table("portfolio").select("ticker, shares, avg_cost").execute().data
+    stock_value = 0.0
+    for h in holdings:
+        price = latest_price(sb, h["ticker"])
+        if price is None:
+            price = float(h["avg_cost"])
+        stock_value += float(h["shares"]) * price
+    return cash + stock_value
 
 
 def get_holding(sb, ticker: str) -> dict | None:
