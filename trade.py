@@ -3,11 +3,19 @@
 import os
 from db import get_client
 
-MAX_POSITION_PCT    = 0.05  # maks 5% av total porteføljeverdi per aksje
+MAX_POSITION_PCT    = 0.10  # maks 10% av total porteføljeverdi per aksje
 MAX_TOTAL_EXPOSURE  = 0.80  # maks 80% av porteføljen investert samtidig
 MIN_CONFIDENCE      = 0.65  # ignorer signaler under 65% konfidens
 STOP_LOSS_PCT       = 0.07  # selg automatisk ved 7% tap
 MAX_PER_SECTOR      = 2     # maks antall posisjoner per sektor samtidig
+
+# Nordnet kurtasje: 0,05% av handelsverdi, minimum 99 NOK per handel
+KURTASJE_PCT = 0.0005
+KURTASJE_MIN = 99.0
+
+# Minimum gevinst for at en handel skal være lønnsom etter kurtasje (begge veier)
+# Posisjon må stige minst dette før salg gir netto pluss
+MIN_PROFIT_AFTER_FEES_PCT = 0.015  # 1,5% netto — dekker kurtasje + litt margin
 
 # VIX-styring: høy global frykt → reduser eksponering
 VIX_CAUTION   = 20   # VIX > 20: halvér posisjonsstørrelse
@@ -93,6 +101,11 @@ def get_holding(sb, ticker: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def kurtasje(verdi: float) -> float:
+    """Beregner Nordnet-kurtasje for en handel av gitt verdi."""
+    return max(KURTASJE_MIN, verdi * KURTASJE_PCT)
+
+
 def get_vix(sb) -> float:
     rows = sb.table("macro").select("vix").order("date", desc=True).limit(1).execute().data
     return float(rows[0]["vix"]) if rows and rows[0].get("vix") else 0.0
@@ -138,37 +151,55 @@ def buy(sb, ticker: str, price: float, reason: str, total_value: float):
         print(f"  {ticker}: ikke nok kontanter (har {cash:.0f} NOK)")
         return
 
-    shares = spend / price
-    cost = shares * price
+    fee = kurtasje(spend)
+    shares = (spend - fee) / price
+    cost_total = spend  # inkl. kurtasje
 
     holding = get_holding(sb, ticker)
     if holding:
         old_shares = float(holding["shares"])
         old_avg = float(holding["avg_cost"])
         new_shares = old_shares + shares
-        new_avg = (old_shares * old_avg + cost) / new_shares
+        # Snittinngangskurs inkl. kjøpskurtasje
+        new_avg = (old_shares * old_avg + shares * price + fee) / new_shares
         sb.table("portfolio").update({"shares": new_shares, "avg_cost": new_avg}).eq("ticker", ticker).execute()
     else:
-        sb.table("portfolio").upsert({"ticker": ticker, "shares": shares, "avg_cost": price}).execute()
+        # avg_cost inkluderer kurtasje slik at break-even beregnes riktig
+        avg_cost_inkl_fee = (shares * price + fee) / shares
+        sb.table("portfolio").upsert({"ticker": ticker, "shares": shares, "avg_cost": avg_cost_inkl_fee}).execute()
 
-    sb.table("cash").update({"amount": cash - cost}).eq("id", 1).execute()
+    sb.table("cash").update({"amount": cash - cost_total}).eq("id", 1).execute()
     sb.table("transactions").insert({
         "ticker": ticker, "action": "BUY",
         "shares": shares, "price": price, "reason": reason,
     }).execute()
-    print(f"  KJØPt {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK (kostnad: {cost:.0f} NOK)")
+    print(f"  KJØPt {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK | kurtasje: {fee:.0f} NOK | totalt: {cost_total:.0f} NOK")
 
 
-def sell(sb, ticker: str, price: float, reason: str):
+def sell(sb, ticker: str, price: float, reason: str, force: bool = False):
     holding = get_holding(sb, ticker)
     if not holding or float(holding["shares"]) <= 0:
         print(f"  {ticker}: ingen posisjon å selge")
         return
 
-    shares = float(holding["shares"])
-    proceeds = shares * price
+    shares   = float(holding["shares"])
+    avg_cost = float(holding["avg_cost"])  # inkl. kjøpskurtasje
+    gross    = shares * price
+    fee      = kurtasje(gross)
+    net      = gross - fee
+
+    # Ikke selg med tap pga kurtasje alene (med mindre det er stop-loss/force)
+    if not force:
+        net_pnl_pct = (net / (shares * avg_cost) - 1) * 100
+        if net_pnl_pct < 0 and net_pnl_pct > -(STOP_LOSS_PCT * 100):
+            # Sjekk om vi faktisk tjener etter alle kostnader
+            breakeven_price = avg_cost * (1 + MIN_PROFIT_AFTER_FEES_PCT)
+            if price < breakeven_price:
+                print(f"  {ticker}: SELL avvist — kurs {price:.2f} under break-even {breakeven_price:.2f} (kurtasje spiser gevinsten)")
+                return
+
     cash_row = sb.table("cash").select("amount").eq("id", 1).single().execute().data
-    new_cash = float(cash_row["amount"]) + proceeds
+    new_cash = float(cash_row["amount"]) + net
 
     sb.table("portfolio").delete().eq("ticker", ticker).execute()
     sb.table("cash").update({"amount": new_cash}).eq("id", 1).execute()
@@ -177,10 +208,10 @@ def sell(sb, ticker: str, price: float, reason: str):
         "shares": shares, "price": price, "reason": reason,
     }).execute()
 
-    pnl = (price - float(holding["avg_cost"])) * shares
-    pnl_pct = (price / float(holding["avg_cost"]) - 1) * 100
-    sign = "+" if pnl >= 0 else ""
-    print(f"  SOLGT {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK | P&L: {sign}{pnl:.0f} NOK ({sign}{pnl_pct:.1f}%)")
+    pnl     = net - shares * avg_cost
+    pnl_pct = pnl / (shares * avg_cost) * 100
+    sign    = "+" if pnl >= 0 else ""
+    print(f"  SOLGT {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK | kurtasje: {fee:.0f} NOK | P&L: {sign}{pnl:.0f} NOK ({sign}{pnl_pct:.1f}%)")
 
 
 def check_stop_losses(sb, total_value: float):
@@ -193,7 +224,7 @@ def check_stop_losses(sb, total_value: float):
         loss_pct = (avg - price) / avg
         if loss_pct >= STOP_LOSS_PCT:
             print(f"  STOP-LOSS utløst for {h['ticker']} (kjøpt @ {avg:.2f}, nå {price:.2f}, -{loss_pct*100:.1f}%)")
-            sell(sb, h["ticker"], price, f"Stop-loss utløst ved -{loss_pct*100:.1f}%")
+            sell(sb, h["ticker"], price, f"Stop-loss utløst ved -{loss_pct*100:.1f}%", force=True)
 
 
 def run():
@@ -213,7 +244,7 @@ def run():
             for h in holdings:
                 price = latest_price(sb, h["ticker"])
                 if price:
-                    sell(sb, h["ticker"], price, f"VIX={vix:.0f} — panikksalg")
+                    sell(sb, h["ticker"], price, f"VIX={vix:.0f} — panikksalg", force=True)
 
     # Sjekk stop-loss før vi behandler signaler
     print("--- Stop-loss sjekk ---")
@@ -249,7 +280,7 @@ def run():
         if signal == "BUY" and not holding:
             buy(sb, ticker, price, reasoning, total_value)
         elif signal == "SELL" and holding:
-            sell(sb, ticker, price, reasoning)
+            sell(sb, ticker, price, reasoning, force=False)
         else:
             status = "allerede eid" if (signal == "BUY" and holding) else "ingen posisjon"
             print(f"  {ticker}: {signal} — ingen handling ({status})")
