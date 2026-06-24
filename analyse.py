@@ -3,6 +3,7 @@
 import os
 import json
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import anthropic
 import yfinance as yf
 from db import get_client
@@ -298,12 +299,21 @@ def run():
     if macro:
         print(f"Makro: {macro.replace(chr(10), ' | ')}\n")
 
-    signals = []
-    for ticker in TICKERS:
+    def analyse_one(ticker: str) -> dict | None:
         try:
-            result = analyse_ticker(ai, sb, ticker, intraday, macro)
+            return analyse_ticker(ai, sb, ticker, intraday, macro)
+        except Exception as e:
+            print(f"  {ticker}: FEIL — {e}")
+            return None
+
+    signals = []
+    # 10 parallelle tråder — balanse mellom fart og API-rate-limits
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(analyse_one, t): t for t in TICKERS}
+        for future in as_completed(futures):
+            result = future.result()
             if not result:
-                print(f"  {ticker}: ingen data")
+                print(f"  {futures[future]}: ingen data")
                 continue
             signals.append({
                 "ticker":     result["ticker"],
@@ -312,9 +322,7 @@ def run():
                 "reasoning":  result["reasoning"],
             })
             icon = {"BUY": "📈", "SELL": "📉", "HOLD": "⏸️"}.get(result["signal"], "")
-            print(f"  {ticker}: {result['signal']} {icon} ({result['confidence']:.0%}) — {result['reasoning'][:80]}")
-        except Exception as e:
-            print(f"  {ticker}: FEIL — {e}")
+            print(f"  {result['ticker']}: {result['signal']} {icon} ({result['confidence']:.0%}) — {result['reasoning'][:80]}")
 
     if signals:
         sb.table("signals").insert(signals).execute()
