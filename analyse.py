@@ -53,6 +53,20 @@ def get_daily(sb, ticker: str, days: int = 10) -> list[dict]:
     ))
 
 
+def get_macro(sb) -> str:
+    rows = sb.table("macro").select("*").order("date", desc=True).limit(1).execute().data
+    if not rows:
+        return "Ingen makrodata tilgjengelig."
+    m = rows[0]
+    parts = []
+    if m.get("policy_rate"):  parts.append(f"Norges Bank styringsrente: {m['policy_rate']}%")
+    if m.get("brent_usd"):    parts.append(f"Brent-olje: {m['brent_usd']:.1f} USD/fat")
+    if m.get("osebx"):        parts.append(f"OSEBX-indeks: {m['osebx']:.0f}")
+    if m.get("usd_nok"):      parts.append(f"USD/NOK: {m['usd_nok']:.2f}")
+    if m.get("eur_nok"):      parts.append(f"EUR/NOK: {m['eur_nok']:.2f}")
+    return "\n".join(parts)
+
+
 def get_news(sb, ticker: str) -> list[dict]:
     return (
         sb.table("news")
@@ -65,7 +79,7 @@ def get_news(sb, ticker: str) -> list[dict]:
     )
 
 
-def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool) -> dict | None:
+def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool, macro: str = "") -> dict | None:
     news = get_news(sb, ticker)
     news_text = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
 
@@ -94,12 +108,14 @@ def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: 
         )
         horizon = "1–3 dager"
 
+    macro_section = f"\nMakroøkonomi:\n{macro}" if macro else ""
+
     prompt = f"""Du er en aksjeanalytiker. Vurder {ticker} for papirhandel med {horizon} horisont.
 
 Ticker: {ticker}
 Siste kurs: {latest_price:.2f} NOK
 Tidsramme: {timeframe}
-
+{macro_section}
 Kursdata:
 {price_lines}
 
@@ -139,12 +155,14 @@ def run():
     intraday = is_market_hours()
     mode = "INTRADAG (15 min)" if intraday else "DAGLIG"
 
+    macro = get_macro(sb)
     print(f"AI-analyse [{mode}] for {len(TICKERS)} tickers...\n")
+    print(f"Makro: {macro.replace(chr(10), ' | ')}\n")
 
     signals = []
     for ticker in TICKERS:
         try:
-            result = analyse_ticker(ai, sb, ticker, intraday)
+            result = analyse_ticker(ai, sb, ticker, intraday, macro)
             if not result:
                 print(f"  {ticker}: ingen data")
                 continue

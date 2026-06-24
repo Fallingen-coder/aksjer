@@ -27,6 +27,12 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Hent makrodata
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python fetch_macro.py
+
       - name: Hent intradag-kurser
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -52,3 +58,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python trade.py
+
+      - name: Treffratelogg
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python performance.py
