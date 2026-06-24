@@ -1,0 +1,6 @@
+yfinance
+feedparser
+anthropic
+schedule
+rich
+supabase
