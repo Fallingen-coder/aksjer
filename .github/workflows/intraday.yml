@@ -59,6 +59,12 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python trade.py
 
+      - name: Corporate actions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python corporate_actions.py
+
       - name: Treffratelogg
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

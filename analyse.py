@@ -68,6 +68,27 @@ def get_macro(sb) -> str:
     return "\n".join(parts)
 
 
+def get_dividend_warning(ticker: str) -> str:
+    """Returnerer advarsel hvis ex-utbytte-dato er innen 3 dager."""
+    try:
+        cal = yf.Ticker(ticker).calendar
+        if not cal or "Ex-Dividend Date" not in cal:
+            return ""
+        ex_date = cal["Ex-Dividend Date"]
+        if ex_date is None:
+            return ""
+        from datetime import date
+        days = (ex_date - date.today()).days
+        if 0 <= days <= 3:
+            divs = yf.Ticker(ticker).dividends
+            amount = float(divs.iloc[-1]) if not divs.empty else 0
+            return (f"⚠ EX-UTBYTTE OM {days} DAGER ({ex_date}) — {amount:.2f} NOK/aksje. "
+                    f"Kursen vil falle tilsvarende på ex-dato. Unngå kjøp.")
+    except Exception:
+        pass
+    return ""
+
+
 def get_earnings_warning(ticker: str) -> str:
     """Returnerer advarsel hvis kvartalstall er innen 3 dager."""
     try:
@@ -169,12 +190,13 @@ def get_news(sb, ticker: str) -> list[dict]:
 
 
 def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool, macro: str = "") -> dict | None:
-    news         = get_news(sb, ticker)
-    news_text    = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
-    w52          = get_52week(ticker)
-    rs           = get_relative_strength(ticker)
+    news          = get_news(sb, ticker)
+    news_text     = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
+    w52           = get_52week(ticker)
+    rs            = get_relative_strength(ticker)
     earnings_warn = get_earnings_warning(ticker)
-    insider_news = get_insider_news(news)
+    dividend_warn = get_dividend_warning(ticker)
+    insider_news  = get_insider_news(news)
 
     if intraday_mode:
         candles = get_intraday(sb, ticker)
@@ -201,21 +223,21 @@ def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: 
         )
         horizon = "1–3 dager"
 
-    # Resultatkalender-sperre: returner HOLD direkte ved kvartalstall innen 3 dager
-    if earnings_warn and "KVARTALSTALL OM" in earnings_warn:
-        return {
-            "ticker":     ticker,
-            "signal":     "HOLD",
-            "confidence": 0.50,
-            "reasoning":  earnings_warn,
-        }
+    # Automatiske HOLD-sperrer — for høy usikkerhet
+    for sperre, tekst in [
+        ("KVARTALSTALL OM",  earnings_warn),
+        ("EX-UTBYTTE OM",    dividend_warn),
+    ]:
+        if tekst and sperre in tekst:
+            return {"ticker": ticker, "signal": "HOLD", "confidence": 0.50, "reasoning": tekst}
 
     kontekst_linjer = []
-    if macro:        kontekst_linjer.append(f"Makroøkonomi:\n{macro}")
-    if w52:          kontekst_linjer.append(f"52-ukers intervall:\n{w52}")
-    if rs:           kontekst_linjer.append(f"Relativ styrke:\n{rs}")
-    if insider_news: kontekst_linjer.append(insider_news)
+    if macro:         kontekst_linjer.append(f"Makroøkonomi:\n{macro}")
+    if w52:           kontekst_linjer.append(f"52-ukers intervall:\n{w52}")
+    if rs:            kontekst_linjer.append(f"Relativ styrke:\n{rs}")
+    if insider_news:  kontekst_linjer.append(insider_news)
     if earnings_warn: kontekst_linjer.append(earnings_warn)
+    if dividend_warn: kontekst_linjer.append(dividend_warn)
     kontekst = ("\n\n" + "\n\n".join(kontekst_linjer)) if kontekst_linjer else ""
 
     prompt = f"""Du er en aksjeanalytiker. Vurder {ticker} for papirhandel med {horizon} horisont.
