@@ -27,7 +27,7 @@ jobs:
           username: ${{ secrets.NOTIFY_EMAIL }}
           password: ${{ secrets.NOTIFY_EMAIL_PASSWORD }}
           subject: "⚠ Aksje-workflow feilet — ${{ github.workflow }}"
-          to: fallinge90@gmail.com
+          to: fallinge90@gmail.com,grim@fraktas.no
           from: Aksje-bot
           body: |
             GitHub Actions workflow "${{ github.workflow }}" feilet.
