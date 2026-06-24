@@ -9,6 +9,17 @@ from tickers import TICKERS
 
 MODEL = "claude-haiku-4-5-20251001"
 
+KNOWLEDGE_FILE = os.path.join(os.path.dirname(__file__), "trading_knowledge.md")
+
+def load_knowledge() -> str:
+    try:
+        with open(KNOWLEDGE_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+TRADING_KNOWLEDGE = load_knowledge()
+
 
 def is_market_hours() -> bool:
     now = datetime.now(timezone.utc)
@@ -102,9 +113,15 @@ Svar KUN med JSON:
   "reasoning": "maks 2 setninger på norsk"
 }}"""
 
+    system = TRADING_KNOWLEDGE if TRADING_KNOWLEDGE else (
+        "Du er en profesjonell aksjeanalytiker. Bruk teknisk analyse og nyhetsvurdering "
+        "for å gi presise BUY/SELL/HOLD-signaler."
+    )
+
     response = client.messages.create(
         model=MODEL,
         max_tokens=200,
+        system=system,
         messages=[{"role": "user", "content": prompt}],
     )
     text = response.content[0].text.strip()
