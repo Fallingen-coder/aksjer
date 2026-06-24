@@ -71,7 +71,8 @@ def get_macro(sb) -> str:
 def get_dividend_warning(ticker: str) -> str:
     """Returnerer advarsel hvis ex-utbytte-dato er innen 3 dager."""
     try:
-        cal = yf.Ticker(ticker).calendar
+        t   = yf.Ticker(ticker)
+        cal = t.calendar
         if not cal or "Ex-Dividend Date" not in cal:
             return ""
         ex_date = cal["Ex-Dividend Date"]
@@ -80,7 +81,7 @@ def get_dividend_warning(ticker: str) -> str:
         from datetime import date
         days = (ex_date - date.today()).days
         if 0 <= days <= 3:
-            divs = yf.Ticker(ticker).dividends
+            divs = t.dividends
             amount = float(divs.iloc[-1]) if not divs.empty else 0
             return (f"⚠ EX-UTBYTTE OM {days} DAGER ({ex_date}) — {amount:.2f} NOK/aksje. "
                     f"Kursen vil falle tilsvarende på ex-dato. Unngå kjøp.")
@@ -96,9 +97,11 @@ def get_earnings_warning(ticker: str) -> str:
         if not cal or "Earnings Date" not in cal:
             return ""
         dates = cal["Earnings Date"]
-        if not dates:
+        if dates is None or (hasattr(dates, '__len__') and len(dates) == 0):
             return ""
-        earnings_date = dates[0] if isinstance(dates, list) else dates
+        earnings_date = dates[0] if isinstance(dates, (list, tuple)) else dates
+        if not hasattr(earnings_date, 'days') and not hasattr(earnings_date, 'toordinal'):
+            return ""
         from datetime import date
         days_away = (earnings_date - date.today()).days
         if 0 <= days_away <= 3:
