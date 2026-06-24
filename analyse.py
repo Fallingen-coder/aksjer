@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime, timezone
 import anthropic
+import yfinance as yf
 from db import get_client
 from tickers import TICKERS
 
@@ -67,6 +68,55 @@ def get_macro(sb) -> str:
     return "\n".join(parts)
 
 
+def get_52week(ticker: str) -> str:
+    """Henter 52-ukers høy/lav og beregner hvor i området aksjen er nå."""
+    try:
+        df = yf.download(ticker, period="52wk", auto_adjust=True, progress=False)
+        if df.empty:
+            return ""
+        close = df["Close"].iloc[:, 0] if df["Close"].ndim > 1 else df["Close"]
+        high52 = float(close.max())
+        low52  = float(close.min())
+        now    = float(close.iloc[-1])
+        pct    = (now - low52) / (high52 - low52) * 100 if high52 != low52 else 50
+        return (
+            f"52-ukers høy: {high52:.2f} NOK | "
+            f"52-ukers lav: {low52:.2f} NOK | "
+            f"Nåværende posisjon: {pct:.0f}% av årsintervallet"
+            f" ({'nær topp — motstand' if pct > 80 else 'nær bunn — støtte' if pct < 20 else 'midt i intervallet'})"
+        )
+    except Exception:
+        return ""
+
+
+def get_relative_strength(ticker: str) -> str:
+    """Sammenligner aksjen mot OSEBX siste 5 dager."""
+    try:
+        df_stock = yf.download(ticker,   period="5d", auto_adjust=True, progress=False)
+        df_index = yf.download("OSEBX.OL", period="5d", auto_adjust=True, progress=False)
+        if df_stock.empty or df_index.empty:
+            return ""
+
+        s = df_stock["Close"].iloc[:, 0] if df_stock["Close"].ndim > 1 else df_stock["Close"]
+        i = df_index["Close"].iloc[:, 0] if df_index["Close"].ndim > 1 else df_index["Close"]
+
+        stock_ret = (float(s.iloc[-1]) / float(s.iloc[0]) - 1) * 100
+        index_ret = (float(i.iloc[-1]) / float(i.iloc[0]) - 1) * 100
+        rs        = stock_ret - index_ret
+
+        vurdering = (
+            "utperformerer markedet" if rs > 1 else
+            "underperformerer markedet" if rs < -1 else
+            "følger markedet"
+        )
+        return (
+            f"Siste 5 dager: aksjen {stock_ret:+.1f}% vs OSEBX {index_ret:+.1f}% "
+            f"→ relativ styrke {rs:+.1f}% ({vurdering})"
+        )
+    except Exception:
+        return ""
+
+
 def get_news(sb, ticker: str) -> list[dict]:
     return (
         sb.table("news")
@@ -80,8 +130,10 @@ def get_news(sb, ticker: str) -> list[dict]:
 
 
 def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool, macro: str = "") -> dict | None:
-    news = get_news(sb, ticker)
+    news     = get_news(sb, ticker)
     news_text = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
+    w52      = get_52week(ticker)
+    rs       = get_relative_strength(ticker)
 
     if intraday_mode:
         candles = get_intraday(sb, ticker)
@@ -108,14 +160,18 @@ def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: 
         )
         horizon = "1–3 dager"
 
-    macro_section = f"\nMakroøkonomi:\n{macro}" if macro else ""
+    kontekst_linjer = []
+    if macro: kontekst_linjer.append(f"Makroøkonomi:\n{macro}")
+    if w52:   kontekst_linjer.append(f"52-ukers intervall:\n{w52}")
+    if rs:    kontekst_linjer.append(f"Relativ styrke:\n{rs}")
+    kontekst = ("\n\n" + "\n\n".join(kontekst_linjer)) if kontekst_linjer else ""
 
     prompt = f"""Du er en aksjeanalytiker. Vurder {ticker} for papirhandel med {horizon} horisont.
 
 Ticker: {ticker}
 Siste kurs: {latest_price:.2f} NOK
 Tidsramme: {timeframe}
-{macro_section}
+{kontekst}
 Kursdata:
 {price_lines}
 

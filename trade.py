@@ -3,10 +3,47 @@
 import os
 from db import get_client
 
-MAX_POSITION_PCT = 0.05   # maks 5% av total porteføljeverdi per aksje
-MAX_TOTAL_EXPOSURE = 0.80 # maks 80% av porteføljen investert samtidig
-MIN_CONFIDENCE   = 0.65   # ignorer signaler under 65% konfidens
-STOP_LOSS_PCT    = 0.07   # selg automatisk ved 7% tap
+MAX_POSITION_PCT    = 0.05  # maks 5% av total porteføljeverdi per aksje
+MAX_TOTAL_EXPOSURE  = 0.80  # maks 80% av porteføljen investert samtidig
+MIN_CONFIDENCE      = 0.65  # ignorer signaler under 65% konfidens
+STOP_LOSS_PCT       = 0.07  # selg automatisk ved 7% tap
+MAX_PER_SECTOR      = 2     # maks antall posisjoner per sektor samtidig
+
+# Sektorkart — brukes til å unngå for høy konsentrasjon
+SECTORS: dict[str, str] = {
+    # Energi / olje og gass
+    "EQNR.OL": "energi", "AKRBP.OL": "energi", "SUBC.OL": "energi",
+    "TGS.OL":  "energi", "PGS.OL":   "energi", "BORR.OL": "energi",
+    "OKEA.OL": "energi", "ODL.OL":   "energi", "SOFF.OL": "energi",
+    "BWO.OL":  "energi", "SDRL.OL":  "energi",
+    # Fornybar energi
+    "SCATC.OL": "fornybar", "RECSI.OL": "fornybar", "BWE.OL": "fornybar",
+    "NHY.OL":   "fornybar",
+    # Shipping / frakt
+    "HAFNI.OL": "shipping", "BWLPG.OL": "shipping", "MPCC.OL": "shipping",
+    "GOGL.OL":  "shipping", "2020.OL":  "shipping", "FLNG.OL": "shipping",
+    "COOL.OL":  "shipping", "SMOP.OL":  "shipping",
+    # Sjømat / havbruk
+    "MOWI.OL": "sjømat", "SALM.OL": "sjømat", "LSG.OL":  "sjømat",
+    "AUSS.OL": "sjømat", "NRS.OL":  "sjømat", "GRIEG.OL": "sjømat",
+    # Finans
+    "DNB.OL": "finans", "STB.OL": "finans", "GJF.OL": "finans",
+    "NONG.OL": "finans", "ABG.OL": "finans",
+    # Telecom / tech
+    "TEL.OL": "tech", "OPERA.OL": "tech", "ATEA.OL": "tech",
+    "PEXIP.OL": "tech", "NEXT.OL": "tech", "IDEX.OL": "tech",
+    "EMGS.OL":  "tech", "PHO.OL": "tech",
+    # Industri / konglomerat
+    "ORK.OL": "industri", "AKER.OL": "industri", "KOG.OL":  "industri",
+    "NRC.OL": "industri", "NSKOG.OL": "industri", "KIT.OL": "industri",
+    "MING.OL": "industri", "BEWI.OL": "industri",
+    # Forbruk / tjenester
+    "SATS.OL": "forbruk", "XXL.OL": "forbruk",
+    # Diverse
+    "SCANA.OL": "diverse", "LINK.OL": "diverse", "TOM.OL": "diverse",
+    "ODL.OL":   "diverse", "HAVI.OL": "diverse", "HBC.OL": "diverse",
+    "BWO.OL":   "diverse", "BORR.OL": "diverse",
+}
 
 
 def latest_price(sb, ticker: str) -> float | None:
@@ -51,6 +88,16 @@ def get_holding(sb, ticker: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def sector_count(sb, ticker: str) -> tuple[str, int]:
+    """Returnerer sektoren til ticker og antall posisjoner vi allerede har i samme sektor."""
+    sektor = SECTORS.get(ticker, "ukjent")
+    if sektor == "ukjent":
+        return sektor, 0
+    holdings = sb.table("portfolio").select("ticker").execute().data
+    count = sum(1 for h in holdings if SECTORS.get(h["ticker"], "") == sektor)
+    return sektor, count
+
+
 def buy(sb, ticker: str, price: float, reason: str, total_value: float):
     cash_row = sb.table("cash").select("amount").eq("id", 1).single().execute().data
     cash = float(cash_row["amount"])
@@ -59,6 +106,12 @@ def buy(sb, ticker: str, price: float, reason: str, total_value: float):
     invested = total_value - cash
     if invested / total_value >= MAX_TOTAL_EXPOSURE:
         print(f"  {ticker}: BUY avvist — maks eksponering nådd ({invested/total_value:.0%})")
+        return
+
+    # Ikke kjøp hvis sektoren allerede er fullt utnyttet
+    sektor, antall = sector_count(sb, ticker)
+    if antall >= MAX_PER_SECTOR:
+        print(f"  {ticker}: BUY avvist — allerede {antall} posisjoner i '{sektor}' (maks {MAX_PER_SECTOR})")
         return
 
     max_spend = total_value * MAX_POSITION_PCT
