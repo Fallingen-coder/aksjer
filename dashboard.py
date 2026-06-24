@@ -225,7 +225,7 @@ for i, ticker in enumerate(tickers_with_data):
         mode="lines",
         line=dict(color=color, width=2),
         fill="tozeroy",
-        fillcolor=color.replace(")", ", 0.1)").replace("rgb", "rgba") if "rgb" in color else color + "22",
+        fillcolor=color + "22",
     ))
     sign = "+" if pct_change >= 0 else ""
     fig.update_layout(
