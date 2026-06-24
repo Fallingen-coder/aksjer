@@ -1,0 +1,54 @@
+name: Intradag
+
+on:
+  schedule:
+    # Hvert 15. min, 09:00–17:30 CET = 07:00–15:30 UTC, man–fre
+    - cron: "0,15,30,45 7 * * 1-5"
+    - cron: "0,15,30,45 8 * * 1-5"
+    - cron: "0,15,30,45 9 * * 1-5"
+    - cron: "0,15,30,45 10 * * 1-5"
+    - cron: "0,15,30,45 11 * * 1-5"
+    - cron: "0,15,30,45 12 * * 1-5"
+    - cron: "0,15,30,45 13 * * 1-5"
+    - cron: "0,15,30,45 14 * * 1-5"
+    - cron: "0,15,30 15 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  intraday:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Hent intradag-kurser
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python fetch_intraday.py
+
+      - name: Hent nyheter
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python fetch_news.py
+
+      - name: AI-analyse
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python analyse.py
+
+      - name: Papirhandel
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python trade.py

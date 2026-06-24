@@ -1,16 +1,37 @@
-"""Henter siste kursdata og nyheter, sender til Claude for kjøp/selg/hold-signal."""
+"""Analyserer tickers med Claude — bruker intradag-data i børstid, dagskurs ellers."""
 
 import os
 import json
+from datetime import datetime, timezone
 import anthropic
 from db import get_client
 from tickers import TICKERS
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 
 
-def get_price_history(sb, ticker: str, days: int = 30) -> list[dict]:
-    rows = (
+def is_market_hours() -> bool:
+    now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        return False
+    return 7 <= now.hour < 16
+
+
+def get_intraday(sb, ticker: str, periods: int = 26) -> list[dict]:
+    """Siste N 15-min-perioder (ca. 1 børsdag)."""
+    return list(reversed(
+        sb.table("intraday_prices")
+        .select("ts, open, high, low, close, volume")
+        .eq("ticker", ticker)
+        .order("ts", desc=True)
+        .limit(periods)
+        .execute()
+        .data
+    ))
+
+
+def get_daily(sb, ticker: str, days: int = 10) -> list[dict]:
+    return list(reversed(
         sb.table("prices")
         .select("date, open, high, low, close, volume")
         .eq("ticker", ticker)
@@ -18,70 +39,75 @@ def get_price_history(sb, ticker: str, days: int = 30) -> list[dict]:
         .limit(days)
         .execute()
         .data
-    )
-    return list(reversed(rows))
+    ))
 
 
-def get_recent_news(sb, ticker: str, limit: int = 5) -> list[dict]:
+def get_news(sb, ticker: str) -> list[dict]:
     return (
         sb.table("news")
         .select("title, summary, source, fetched_at")
         .eq("ticker", ticker)
         .order("fetched_at", desc=True)
-        .limit(limit)
+        .limit(5)
         .execute()
         .data
     )
 
 
-def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str) -> dict:
-    prices = get_price_history(sb, ticker)
-    news = get_recent_news(sb, ticker)
+def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool) -> dict | None:
+    news = get_news(sb, ticker)
+    news_text = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
 
-    if not prices:
-        print(f"  {ticker}: ingen kursdata — hopper over")
-        return None
+    if intraday_mode:
+        candles = get_intraday(sb, ticker)
+        if not candles:
+            candles = get_daily(sb, ticker, 3)
+            if not candles:
+                return None
+        latest_price = candles[-1]["close"]
+        timeframe = "15-minutters"
+        price_lines = "\n".join(
+            f"{r.get('ts', r.get('date',''))[:16]}: slutt={r['close']:.2f}, volum={r['volume']}"
+            for r in candles
+        )
+        horizon = "kortsiktig (intradag)"
+    else:
+        candles = get_daily(sb, ticker, 10)
+        if not candles:
+            return None
+        latest_price = candles[-1]["close"]
+        timeframe = "daglig"
+        price_lines = "\n".join(
+            f"{r['date']}: slutt={r['close']:.2f}, volum={r['volume']}"
+            for r in candles
+        )
+        horizon = "1–3 dager"
 
-    latest_price = prices[-1]["close"]
-
-    price_summary = "\n".join(
-        f"{r['date']}: åpning={r['open']:.2f}, høy={r['high']:.2f}, lav={r['low']:.2f}, slutt={r['close']:.2f}, volum={r['volume']}"
-        for r in prices
-    )
-
-    news_summary = (
-        "\n".join(f"- {n['title']} ({n['source']}, {n['fetched_at'][:10]})" for n in news)
-        if news else "Ingen nyheter tilgjengelig."
-    )
-
-    prompt = f"""Du er en aksjeanalytiker som vurderer Oslo Børs-aksjer for en papirportefølje (ingen ekte penger).
+    prompt = f"""Du er en aksjeanalytiker. Vurder {ticker} for papirhandel med {horizon} horisont.
 
 Ticker: {ticker}
 Siste kurs: {latest_price:.2f} NOK
+Tidsramme: {timeframe}
 
-Kurshistorikk (siste 30 dager):
-{price_summary}
+Kursdata:
+{price_lines}
 
 Nyheter:
-{news_summary}
+{news_text}
 
-Gi et signal basert på teknisk analyse og tilgjengelige nyheter.
-
-Svar KUN med et JSON-objekt på dette formatet:
+Svar KUN med JSON:
 {{
   "signal": "BUY" | "SELL" | "HOLD",
   "confidence": 0.0–1.0,
-  "reasoning": "kortfattet begrunnelse på norsk (maks 3 setninger)"
+  "reasoning": "maks 2 setninger på norsk"
 }}"""
 
     response = client.messages.create(
         model=MODEL,
-        max_tokens=256,
+        max_tokens=200,
         messages=[{"role": "user", "content": prompt}],
     )
-
     text = response.content[0].text.strip()
-    # Trekk ut JSON selv om modellen pakker det i ```json
     if "```" in text:
         text = text.split("```")[1].lstrip("json").strip()
 
@@ -93,12 +119,18 @@ Svar KUN med et JSON-objekt på dette formatet:
 def run():
     sb = get_client()
     ai = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    intraday = is_market_hours()
+    mode = "INTRADAG (15 min)" if intraday else "DAGLIG"
 
-    print("Kjører AI-analyse for alle tickers...\n")
+    print(f"AI-analyse [{mode}] for {len(TICKERS)} tickers...\n")
+
     signals = []
     for ticker in TICKERS:
-        result = analyse_ticker(ai, sb, ticker)
-        if result:
+        try:
+            result = analyse_ticker(ai, sb, ticker, intraday)
+            if not result:
+                print(f"  {ticker}: ingen data")
+                continue
             signals.append({
                 "ticker":     result["ticker"],
                 "signal":     result["signal"],
@@ -106,12 +138,13 @@ def run():
                 "reasoning":  result["reasoning"],
             })
             icon = {"BUY": "📈", "SELL": "📉", "HOLD": "⏸️"}.get(result["signal"], "")
-            print(f"  {ticker}: {result['signal']} {icon} (konfidens: {result['confidence']:.0%})")
-            print(f"    → {result['reasoning']}\n")
+            print(f"  {ticker}: {result['signal']} {icon} ({result['confidence']:.0%}) — {result['reasoning'][:80]}")
+        except Exception as e:
+            print(f"  {ticker}: FEIL — {e}")
 
     if signals:
         sb.table("signals").insert(signals).execute()
-        print(f"✓ {len(signals)} signaler lagret i Supabase.")
+        print(f"\n✓ {len(signals)} signaler lagret.")
 
 
 if __name__ == "__main__":
