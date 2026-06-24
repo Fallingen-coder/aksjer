@@ -50,17 +50,19 @@ def run():
 
     rate   = fetch_norges_bank_rate()
     brent  = fetch_yfinance("BZ=F",     "Brent-olje")
-    osebx  = fetch_yfinance("^OSEBX",   "OSEBX")
+    osebx  = fetch_yfinance("OSEBX.OL", "OSEBX")
     usdnok = fetch_yfinance("USDNOK=X", "USD/NOK")
     eurnok = fetch_yfinance("EURNOK=X", "EUR/NOK")
+    vix    = fetch_yfinance("^VIX",     "VIX")
 
     row = {
-        "date":            today,
-        "policy_rate":     rate,
-        "brent_usd":       brent,
-        "osebx":           osebx,
-        "usd_nok":         usdnok,
-        "eur_nok":         eurnok,
+        "date":        today,
+        "policy_rate": rate,
+        "brent_usd":   brent,
+        "osebx":       osebx,
+        "usd_nok":     usdnok,
+        "eur_nok":     eurnok,
+        "vix":         vix,
     }
 
     # Fjern None-verdier
@@ -73,6 +75,7 @@ def run():
     print(f"  OSEBX:          {osebx:.1f}"      if osebx  else "  OSEBX:          –")
     print(f"  USD/NOK:        {usdnok:.4f}"     if usdnok else "  USD/NOK:        –")
     print(f"  EUR/NOK:        {eurnok:.4f}"     if eurnok else "  EUR/NOK:        –")
+    print(f"  VIX:            {vix:.1f}"        if vix    else "  VIX:            –")
     print(f"\n✓ Makrodata lagret for {today}.")
 
 

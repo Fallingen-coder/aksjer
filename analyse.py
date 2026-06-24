@@ -68,6 +68,45 @@ def get_macro(sb) -> str:
     return "\n".join(parts)
 
 
+def get_earnings_warning(ticker: str) -> str:
+    """Returnerer advarsel hvis kvartalstall er innen 3 dager."""
+    try:
+        cal = yf.Ticker(ticker).calendar
+        if not cal or "Earnings Date" not in cal:
+            return ""
+        dates = cal["Earnings Date"]
+        if not dates:
+            return ""
+        earnings_date = dates[0] if isinstance(dates, list) else dates
+        from datetime import date
+        days_away = (earnings_date - date.today()).days
+        if 0 <= days_away <= 3:
+            return f"⚠ KVARTALSTALL OM {days_away} DAGER ({earnings_date}) — høy usikkerhet, unngå nye kjøp"
+        if days_away < 0 and days_away >= -2:
+            return f"Kvartalstall nettopp lagt frem ({earnings_date})"
+    except Exception:
+        pass
+    return ""
+
+
+INSIDER_KEYWORDS = [
+    "primærinnside", "innsidekjøp", "innsidehandel", "kjøpte aksjer",
+    "solgte aksjer", "insider", "direktør kjøpte", "styreleder kjøpte",
+    "ceo kjøpte", "cfo kjøpte",
+]
+
+def get_insider_news(news: list[dict]) -> str:
+    """Finn innsiderelevante nyheter i nyhetslisten vi allerede har."""
+    hits = []
+    for n in news:
+        tekst = (n.get("title", "") + " " + n.get("summary", "")).lower()
+        if any(kw in tekst for kw in INSIDER_KEYWORDS):
+            hits.append(n["title"])
+    if not hits:
+        return ""
+    return "Innsidehandler i nyhetene:\n" + "\n".join(f"- {h}" for h in hits)
+
+
 def get_52week(ticker: str) -> str:
     """Henter 52-ukers høy/lav og beregner hvor i området aksjen er nå."""
     try:
@@ -130,10 +169,12 @@ def get_news(sb, ticker: str) -> list[dict]:
 
 
 def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool, macro: str = "") -> dict | None:
-    news     = get_news(sb, ticker)
-    news_text = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
-    w52      = get_52week(ticker)
-    rs       = get_relative_strength(ticker)
+    news         = get_news(sb, ticker)
+    news_text    = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
+    w52          = get_52week(ticker)
+    rs           = get_relative_strength(ticker)
+    earnings_warn = get_earnings_warning(ticker)
+    insider_news = get_insider_news(news)
 
     if intraday_mode:
         candles = get_intraday(sb, ticker)
@@ -160,10 +201,21 @@ def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: 
         )
         horizon = "1–3 dager"
 
+    # Resultatkalender-sperre: returner HOLD direkte ved kvartalstall innen 3 dager
+    if earnings_warn and "KVARTALSTALL OM" in earnings_warn:
+        return {
+            "ticker":     ticker,
+            "signal":     "HOLD",
+            "confidence": 0.50,
+            "reasoning":  earnings_warn,
+        }
+
     kontekst_linjer = []
-    if macro: kontekst_linjer.append(f"Makroøkonomi:\n{macro}")
-    if w52:   kontekst_linjer.append(f"52-ukers intervall:\n{w52}")
-    if rs:    kontekst_linjer.append(f"Relativ styrke:\n{rs}")
+    if macro:        kontekst_linjer.append(f"Makroøkonomi:\n{macro}")
+    if w52:          kontekst_linjer.append(f"52-ukers intervall:\n{w52}")
+    if rs:           kontekst_linjer.append(f"Relativ styrke:\n{rs}")
+    if insider_news: kontekst_linjer.append(insider_news)
+    if earnings_warn: kontekst_linjer.append(earnings_warn)
     kontekst = ("\n\n" + "\n\n".join(kontekst_linjer)) if kontekst_linjer else ""
 
     prompt = f"""Du er en aksjeanalytiker. Vurder {ticker} for papirhandel med {horizon} horisont.

@@ -9,6 +9,11 @@ MIN_CONFIDENCE      = 0.65  # ignorer signaler under 65% konfidens
 STOP_LOSS_PCT       = 0.07  # selg automatisk ved 7% tap
 MAX_PER_SECTOR      = 2     # maks antall posisjoner per sektor samtidig
 
+# VIX-styring: høy global frykt → reduser eksponering
+VIX_CAUTION   = 20   # VIX > 20: halvér posisjonsstørrelse
+VIX_DEFENSIVE = 25   # VIX > 25: ikke kjøp nye posisjoner
+VIX_PANIC     = 30   # VIX > 30: selg alt ned til 30% eksponering
+
 # Sektorkart — brukes til å unngå for høy konsentrasjon
 SECTORS: dict[str, str] = {
     # Energi / olje og gass
@@ -88,6 +93,11 @@ def get_holding(sb, ticker: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def get_vix(sb) -> float:
+    rows = sb.table("macro").select("vix").order("date", desc=True).limit(1).execute().data
+    return float(rows[0]["vix"]) if rows and rows[0].get("vix") else 0.0
+
+
 def sector_count(sb, ticker: str) -> tuple[str, int]:
     """Returnerer sektoren til ticker og antall posisjoner vi allerede har i samme sektor."""
     sektor = SECTORS.get(ticker, "ukjent")
@@ -114,7 +124,14 @@ def buy(sb, ticker: str, price: float, reason: str, total_value: float):
         print(f"  {ticker}: BUY avvist — allerede {antall} posisjoner i '{sektor}' (maks {MAX_PER_SECTOR})")
         return
 
-    max_spend = total_value * MAX_POSITION_PCT
+    # VIX-justert posisjonsstørrelse
+    vix = get_vix(sb)
+    if vix >= VIX_DEFENSIVE:
+        print(f"  {ticker}: BUY avvist — VIX={vix:.0f} over forsiktighetsnivå ({VIX_DEFENSIVE})")
+        return
+    vix_factor = 0.5 if vix >= VIX_CAUTION else 1.0
+
+    max_spend = total_value * MAX_POSITION_PCT * vix_factor
     spend = min(max_spend, cash * 0.95)
 
     if spend < 100:
@@ -182,7 +199,21 @@ def check_stop_losses(sb, total_value: float):
 def run():
     sb = get_client()
     total_value = portfolio_value(sb)
-    print(f"Porteføljeverdi: {total_value:,.0f} NOK\n")
+    vix = get_vix(sb)
+    print(f"Porteføljeverdi: {total_value:,.0f} NOK | VIX: {vix:.1f}\n")
+
+    # VIX-panikk: reduser eksponering til 30%
+    if vix >= VIX_PANIC:
+        print(f"⚠ VIX={vix:.0f} — PANIKKMODUS: selger ned til 30% eksponering")
+        cash = float(sb.table("cash").select("amount").eq("id", 1).single().execute().data["amount"])
+        invested = total_value - cash
+        target_invested = total_value * 0.30
+        if invested > target_invested:
+            holdings = sb.table("portfolio").select("*").execute().data
+            for h in holdings:
+                price = latest_price(sb, h["ticker"])
+                if price:
+                    sell(sb, h["ticker"], price, f"VIX={vix:.0f} — panikksalg")
 
     # Sjekk stop-loss før vi behandler signaler
     print("--- Stop-loss sjekk ---")
