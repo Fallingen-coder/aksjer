@@ -54,8 +54,7 @@ SECTORS: dict[str, str] = {
     "SATS.OL": "forbruk", "XXL.OL": "forbruk",
     # Diverse
     "SCANA.OL": "diverse", "LINK.OL": "diverse", "TOM.OL": "diverse",
-    "ODL.OL":   "diverse", "HAVI.OL": "diverse", "HBC.OL": "diverse",
-    "BWO.OL":   "diverse", "BORR.OL": "diverse",
+    "HAVI.OL":  "diverse", "HBC.OL":  "diverse",
 }
 
 
