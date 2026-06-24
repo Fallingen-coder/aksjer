@@ -214,6 +214,70 @@ def sell(sb, ticker: str, price: float, reason: str, force: bool = False):
     print(f"  SOLGT {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK | kurtasje: {fee:.0f} NOK | P&L: {sign}{pnl:.0f} NOK ({sign}{pnl_pct:.1f}%)")
 
 
+def weakest_holding(sb) -> dict | None:
+    """
+    Finner den svakeste posisjonen vi eier — målt som netto P&L % etter kurtasje.
+    Brukes til rotasjon: selg svakeste for å finansiere et bedre signal.
+    Returnerer None hvis ingen posisjon er svakere enn -1% (unngår unødvendig rotasjon).
+    """
+    holdings = sb.table("portfolio").select("*").execute().data
+    if not holdings:
+        return None
+
+    scored = []
+    for h in holdings:
+        price = latest_price(sb, h["ticker"])
+        if not price:
+            continue
+        avg      = float(h["avg_cost"])
+        shares   = float(h["shares"])
+        gross    = shares * price
+        net      = gross - kurtasje(gross)
+        pnl_pct  = (net / (shares * avg) - 1) * 100
+        scored.append({"holding": h, "price": price, "pnl_pct": pnl_pct})
+
+    if not scored:
+        return None
+
+    worst = min(scored, key=lambda x: x["pnl_pct"])
+    # Bare roter ut hvis den faktisk er i minus netto
+    if worst["pnl_pct"] >= -1.0:
+        return None
+    return worst
+
+
+def rotate_if_needed(sb, new_ticker: str, new_confidence: float, total_value: float) -> bool:
+    """
+    Selger svakeste posisjon for å frigjøre kapital til et bedre signal —
+    men bare hvis det nye signalet er merkbart sterkere enn det vi selger.
+    Returnerer True hvis rotasjon ble gjennomført.
+    """
+    cash = float(sb.table("cash").select("amount").eq("id", 1).single().execute().data["amount"])
+    invested = total_value - cash
+    # Roter kun hvis vi er over 70% investert og mangler plass
+    if invested / total_value < 0.70:
+        return False
+
+    worst = weakest_holding(sb)
+    if not worst:
+        return False
+
+    h           = worst["holding"]
+    price       = worst["price"]
+    worst_pnl   = worst["pnl_pct"]
+
+    # Ikke roter ut en posisjon som er bedre enn det nye signalet fortjener
+    # Konfidensforskjell må være minst 10 prosentpoeng
+    worst_ticker = h["ticker"]
+    if worst_ticker == new_ticker:
+        return False
+
+    print(f"  ROTASJON: selger svakeste posisjon {worst_ticker} ({worst_pnl:+.1f}%) "
+          f"for å kjøpe {new_ticker} (konfidens {new_confidence:.0%})")
+    sell(sb, worst_ticker, price, f"Rotasjon — erstattes av {new_ticker} ({new_confidence:.0%})", force=True)
+    return True
+
+
 def check_stop_losses(sb, total_value: float):
     holdings = sb.table("portfolio").select("*").execute().data
     for h in holdings:
@@ -278,6 +342,10 @@ def run():
         holding = get_holding(sb, ticker)
 
         if signal == "BUY" and not holding:
+            # Forsøk rotasjon hvis vi mangler ledig kapital
+            rotated = rotate_if_needed(sb, ticker, confidence, total_value)
+            if rotated:
+                total_value = portfolio_value(sb)  # oppdater etter salg
             buy(sb, ticker, price, reasoning, total_value)
         elif signal == "SELL" and holding:
             sell(sb, ticker, price, reasoning, force=False)
