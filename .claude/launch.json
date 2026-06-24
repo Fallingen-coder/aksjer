@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "/Library/Frameworks/Python.framework/Versions/3.14/bin/streamlit",
+      "runtimeArgs": ["run", "dashboard.py", "--server.port", "8501"],
+      "port": 8501,
+      "cwd": "/Users/grimhenrik/Documents/Grim Henrik/Aksjer",
+      "env": {
+        "SUPABASE_URL": "https://wkxumrjdedgyudqivseh.supabase.co",
+        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndreHVtcmpkZWRneXVkcWl2c2VoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjI4NzAyMCwiZXhwIjoyMDk3ODYzMDIwfQ.uaPeBJ2wJnm1XfuC3R1kk2kvRQRyhe9dUi_faj6aOjM"
+      }
+    }
+  ]
+}
