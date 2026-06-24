@@ -1,27 +1,29 @@
-"""Oslo Børs tickers vi følger med på."""
+"""
+Henter aktive Oslo Børs-tickers fra Supabase.
+Faller tilbake til en hardkodet liste dersom databasen er tom.
+"""
 
-TICKERS = [
-    # Originale 10
-    "EQNR.OL",   # Equinor
-    "DNB.OL",    # DNB Bank
-    "TEL.OL",    # Telenor
-    "MOWI.OL",   # Mowi
-    "ORK.OL",    # Orkla
-    "YAR.OL",    # Yara
-    "SALM.OL",   # SalMar
-    "RECSI.OL",  # REC Silicon
-    "AKER.OL",   # Aker ASA
-    "STB.OL",    # Storebrand
+import os
 
-    # Rimelige tillegg
-    "NSKOG.OL",  # Norske Skog (~44 NOK)
-    "MPCC.OL",   # MPC Container Ships (~26 NOK)
-    "BORR.OL",   # Borr Drilling (~42 NOK)
-    "ATEA.OL",   # Atea (~169 NOK)
-    "NRC.OL",    # NRC Group (~8 NOK)
-    "WSTEP.OL",  # Webstep (~14 NOK)
-    "PHO.OL",    # Photon Energy (~60 NOK)
-    "SCANA.OL",  # Scana (~1.4 NOK)
-    "BWO.OL",    # BW Offshore (~45 NOK)
-    "MULTI.OL",  # Multiconsult (~149 NOK)
+FALLBACK = [
+    "EQNR.OL","DNB.OL","TEL.OL","MOWI.OL","ORK.OL",
+    "YAR.OL","SALM.OL","RECSI.OL","AKER.OL","STB.OL",
+    "NSKOG.OL","MPCC.OL","BORR.OL","ATEA.OL","NRC.OL",
+    "WSTEP.OL","PHO.OL","SCANA.OL","BWO.OL","MULTI.OL",
 ]
+
+
+def get_tickers() -> list[str]:
+    try:
+        from db import get_client
+        sb = get_client()
+        rows = sb.table("active_tickers").select("ticker").order("avg_volume", desc=True).execute().data
+        if rows:
+            return [r["ticker"] for r in rows]
+    except Exception:
+        pass
+    return FALLBACK
+
+
+# Eksporter som TICKERS for bakoverkompatibilitet
+TICKERS = get_tickers() if os.environ.get("SUPABASE_URL") else FALLBACK
