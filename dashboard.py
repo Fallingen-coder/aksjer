@@ -217,7 +217,8 @@ for i, ticker in enumerate(tickers_with_data):
     dates  = [r["date"] for r in hist]
     closes = [r["close"] for r in hist]
     pct_change = (closes[-1] - closes[0]) / closes[0] * 100 if closes[0] else 0
-    color = "#4ade80" if pct_change >= 0 else "#f87171"
+    color      = "rgba(74,222,128,1)"   if pct_change >= 0 else "rgba(248,113,113,1)"
+    fill_color = "rgba(74,222,128,0.1)" if pct_change >= 0 else "rgba(248,113,113,0.1)"
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -225,7 +226,7 @@ for i, ticker in enumerate(tickers_with_data):
         mode="lines",
         line=dict(color=color, width=2),
         fill="tozeroy",
-        fillcolor=color + "22",
+        fillcolor=fill_color,
     ))
     sign = "+" if pct_change >= 0 else ""
     fig.update_layout(
