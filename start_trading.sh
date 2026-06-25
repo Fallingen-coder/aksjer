@@ -17,10 +17,10 @@ fi
 : "${SUPABASE_KEY:?Mangler SUPABASE_KEY}"
 : "${ANTHROPIC_API_KEY:?Mangler ANTHROPIC_API_KEY}"
 
-INTERVAL=600  # 10 minutter
+INTERVAL=1800  # 30 minutter
 
 echo "╔══════════════════════════════════════════╗"
-echo "║   Aksje-bot startet — kjører hvert 10m  ║"
+echo "║   Aksje-bot startet — kjører hvert 30m  ║"
 echo "╚══════════════════════════════════════════╝"
 echo "Trykk Ctrl+C for å stoppe."
 echo ""
