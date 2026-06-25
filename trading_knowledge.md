@@ -165,21 +165,25 @@ Disse gjelder like mye for AI som for menneskelige tradere:
 
 ## 9. Beslutningsrammeverk for signalgenerering
 
+Systemet driver **swing trading** med 1–2 ukers horisont basert på 20 dagers daglig kurshistorikk.
+
 Bruk dette hierarkiet når du vurderer BUY/SELL/HOLD:
 
 ```
-1. TREND (overordnet retning)
-   - Kurs over 50-dagers MA? → bullish
-   - Kurs under 50-dagers MA? → bearish
+1. TREND (overordnet retning, 20 dager)
+   - Kurs over 20-dagers MA? → bullish
+   - Kurs under 20-dagers MA? → bearish
+   - Higher highs & higher lows siste uke? → opptrend bekreftet
 
-2. MOMENTUM (intradag)
-   - RSI retning og nivå
-   - MACD crossover?
-   - Kurs vs VWAP?
+2. MOMENTUM (daglig)
+   - RSI retning og nivå (30/70-grenser)
+   - MACD crossover på daglig chart?
+   - Relativ styrke mot OSEBX siste 5 dager?
 
 3. VOLUM (bekreftelse)
    - Støtter volumet kursbevegelsen?
-   - Volumspike → retning?
+   - Volumspike på breakout? → sterk bekreftelse
+   - Lavt volum på kursfall → ikke nødvendigvis trend
 
 4. NYHETER (katalysator)
    - Positiv nyhet + teknisk bullish = sterk BUY
@@ -187,7 +191,8 @@ Bruk dette hierarkiet når du vurderer BUY/SELL/HOLD:
    - Motstridende signaler → HOLD eller redusér posisjon
 
 5. RISIKO
-   - Er stop-loss-nivå klart definert?
+   - Stop-loss settes ved 7% under kjøpspris (William O'Neil CAN SLIM)
+   - Take-profit mål: 14–21% (2R–3R med 7% stop)
    - Passer posisjonsstørrelse med risikoreglene?
    - Er total eksponering innenfor 80%?
 ```
