@@ -193,7 +193,7 @@ def get_news(sb, ticker: str) -> list[dict]:
     )
 
 
-def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool, macro: str = "") -> dict | None:
+def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: bool = False, macro: str = "") -> dict | None:
     news          = get_news(sb, ticker)
     news_text     = "\n".join(f"- {n['title']} ({n['source']})" for n in news) or "Ingen nyheter."
     w52           = get_52week(ticker)
@@ -202,30 +202,16 @@ def analyse_ticker(client: anthropic.Anthropic, sb, ticker: str, intraday_mode: 
     dividend_warn = get_dividend_warning(ticker)
     insider_news  = get_insider_news(news)
 
-    if intraday_mode:
-        candles = get_intraday(sb, ticker)
-        if not candles:
-            candles = get_daily(sb, ticker, 3)
-            if not candles:
-                return None
-        latest_price = candles[-1]["close"]
-        timeframe = "15-minutters"
-        price_lines = "\n".join(
-            f"{r.get('ts', r.get('date',''))[:16]}: slutt={r['close']:.2f}, volum={r['volume']}"
-            for r in candles
-        )
-        horizon = "kortsiktig (intradag)"
-    else:
-        candles = get_daily(sb, ticker, 10)
-        if not candles:
-            return None
-        latest_price = candles[-1]["close"]
-        timeframe = "daglig"
-        price_lines = "\n".join(
-            f"{r['date']}: slutt={r['close']:.2f}, volum={r['volume']}"
-            for r in candles
-        )
-        horizon = "1–3 dager"
+    candles = get_daily(sb, ticker, 20)
+    if not candles:
+        return None
+    latest_price = candles[-1]["close"]
+    timeframe = "daglig (20 dager)"
+    price_lines = "\n".join(
+        f"{r['date']}: slutt={r['close']:.2f}, volum={r['volume']}"
+        for r in candles
+    )
+    horizon = "1–2 uker"
 
     # Automatiske HOLD-sperrer — for høy usikkerhet
     for sperre, tekst in [
@@ -286,8 +272,8 @@ Svar KUN med JSON:
 def run():
     sb = get_client()
     ai = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    intraday = is_market_hours()
-    mode = "INTRADAG (15 min)" if intraday else "DAGLIG"
+    intraday = False  # Swing trading — bruker alltid daglige kurser
+    mode = "SWING (20 dager daglig)"
 
     try:
         macro = get_macro(sb)
