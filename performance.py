@@ -107,17 +107,20 @@ def run():
         print(f"\n  Treffraten: {wins}/{total} ({wins/total:.0%})  |  Snitt P&L per handel: {'+' if tot_pnl >= 0 else ''}{tot_pnl:.1f}%")
 
         # Lagre i Supabase
-        sb.table("performance_log").upsert([
-            {
-                "ticker":     r["ticker"],
-                "buy_ts":     r["buy_ts"],
-                "buy_price":  r["buy_price"],
-                "last_price": r["last_price"],
-                "pnl_pct":    round(r["pnl_pct"], 2),
-                "win":        r["win"],
-            }
-            for r in evaluated
-        ]).execute()
+        sb.table("performance_log").upsert(
+            [
+                {
+                    "ticker":     r["ticker"],
+                    "buy_ts":     r["buy_ts"],
+                    "buy_price":  r["buy_price"],
+                    "last_price": r["last_price"],
+                    "pnl_pct":    round(r["pnl_pct"], 2),
+                    "win":        r["win"],
+                }
+                for r in evaluated
+            ],
+            on_conflict="ticker,buy_ts",
+        ).execute()
 
 
 if __name__ == "__main__":
