@@ -44,7 +44,7 @@ def run():
             # Prøv dagskurs
             later = (
                 sb.table("prices")
-                .select("date as ts, close")
+                .select("date, close")
                 .eq("ticker", ticker)
                 .gt("date", buy_ts[:10])
                 .order("date", desc=False)
