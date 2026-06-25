@@ -7,7 +7,7 @@ import os
 
 FALLBACK = [
     "EQNR.OL","DNB.OL","TEL.OL","MOWI.OL","ORK.OL",
-    "YAR.OL","SALM.OL","RECSI.OL","AKER.OL","STB.OL",
+    "YAR.OL","SALM.OL","AKER.OL","STB.OL",
     "NSKOG.OL","MPCC.OL","BORR.OL","ATEA.OL","NRC.OL",
     "WSTEP.OL","PHO.OL","SCANA.OL","BWO.OL","MULTI.OL",
 ]
