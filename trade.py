@@ -262,18 +262,34 @@ def rotate_if_needed(sb, new_ticker: str, new_confidence: float, total_value: fl
     if not worst:
         return False
 
-    h           = worst["holding"]
-    price       = worst["price"]
-    worst_pnl   = worst["pnl_pct"]
-
-    # Ikke roter ut en posisjon som er bedre enn det nye signalet fortjener
-    # Konfidensforskjell må være minst 10 prosentpoeng
+    h            = worst["holding"]
+    price        = worst["price"]
+    worst_pnl    = worst["pnl_pct"]
     worst_ticker = h["ticker"]
+
     if worst_ticker == new_ticker:
         return False
 
-    print(f"  ROTASJON: selger svakeste posisjon {worst_ticker} ({worst_pnl:+.1f}%) "
-          f"for å kjøpe {new_ticker} (konfidens {new_confidence:.0%})")
+    # Ikke selg med mer enn 5% tap — tapet er for stort til at ny aksje kan dekke det inn
+    # med realistisk forventet avkastning på 1-2 uker
+    if worst_pnl < -5.0:
+        print(f"  ROTASJON avbrutt: {worst_ticker} har {worst_pnl:+.1f}% tap — for stort å realisere")
+        return False
+
+    # Ny aksje må ha konfidens ≥ 75% for å forsvare rotasjon
+    # (terskelen er høyere enn vanlig kjøp fordi vi også realiserer et tap)
+    if new_confidence < 0.75:
+        print(f"  ROTASJON avbrutt: {new_ticker} har kun {new_confidence:.0%} konfidens — ikke sterkt nok signal")
+        return False
+
+    # Forventet gevinst på ny aksje (konfidens som proxy) må overstige realisert tap
+    # Eks: selger med -3% tap → ny aksje må ha ≥ 78% konfidens
+    min_confidence = 0.75 + abs(worst_pnl) / 100
+    if new_confidence < min_confidence:
+        print(f"  ROTASJON avbrutt: tap på {worst_pnl:+.1f}% krever konfidens ≥ {min_confidence:.0%}, har {new_confidence:.0%}")
+        return False
+
+    print(f"  ROTASJON: selger {worst_ticker} ({worst_pnl:+.1f}%) → kjøper {new_ticker} ({new_confidence:.0%})")
     sell(sb, worst_ticker, price, f"Rotasjon — erstattes av {new_ticker} ({new_confidence:.0%})", force=True)
     return True
 
