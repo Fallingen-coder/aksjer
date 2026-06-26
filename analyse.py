@@ -262,7 +262,7 @@ Svar KUN med JSON:
   "reasoning": "maks 2 setninger på norsk"
 }}"""
 
-    system = TRADING_KNOWLEDGE if TRADING_KNOWLEDGE else (
+    system_text = TRADING_KNOWLEDGE if TRADING_KNOWLEDGE else (
         "Du er en profesjonell aksjeanalytiker. Bruk teknisk analyse og nyhetsvurdering "
         "for å gi presise BUY/SELL/HOLD-signaler."
     )
@@ -270,7 +270,11 @@ Svar KUN med JSON:
     response = client.messages.create(
         model=MODEL,
         max_tokens=200,
-        system=system,
+        system=[{
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }],
         messages=[{"role": "user", "content": prompt}],
     )
     text = response.content[0].text.strip()
