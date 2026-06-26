@@ -30,7 +30,7 @@ is_market_hours() {
   hour=$(date '+%H')
   min=$(date '+%M')
   day=$(date '+%u')  # 1=mandag, 7=søndag
-  local time_min=$(( hour * 60 + min ))
+  local time_min=$(( 10#$hour * 60 + 10#$min ))
   local open=540    # 09:00
   local close=1050  # 17:30
   [[ $day -le 5 && $time_min -ge $open && $time_min -lt $close ]]
