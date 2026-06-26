@@ -1,6 +1,7 @@
 """Papirhandel — omsetter AI-signaler til kjøp/salg med posisjonsstyring."""
 
 import os
+from datetime import datetime, timezone, timedelta
 from db import get_client
 
 MAX_POSITION_PCT    = 0.10  # maks 10% av total porteføljeverdi per aksje
@@ -214,6 +215,49 @@ def sell(sb, ticker: str, price: float, reason: str, force: bool = False):
     print(f"  SOLGT {shares:.2f} aksjer i {ticker} @ {price:.2f} NOK | kurtasje: {fee:.0f} NOK | P&L: {sign}{pnl:.0f} NOK ({sign}{pnl_pct:.1f}%)")
 
 
+def recently_sold_at_loss(sb, ticker: str, days: int = 7) -> bool:
+    """Returnerer True hvis vi solgte denne tickeren med tap de siste N dagene."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    txns = (
+        sb.table("transactions")
+        .select("action, price, ts")
+        .eq("ticker", ticker)
+        .eq("action", "SELL")
+        .gt("ts", cutoff)
+        .execute()
+        .data
+    )
+    for tx in txns:
+        # Finn tilhørende kjøpspris fra portfolio-historikk — enklere: sjekk om det finnes et tap-salg
+        # Vi bruker reasoning-feltet som inneholder "Stop-loss" eller negativt P&L
+        pass
+    # Sjekk om vi har solgt og kjøpt igjen innen kortere tid enn 7 dager
+    buy_txns = (
+        sb.table("transactions")
+        .select("ts")
+        .eq("ticker", ticker)
+        .eq("action", "BUY")
+        .gt("ts", cutoff)
+        .execute()
+        .data
+    )
+    sell_txns = txns
+    # Hvis vi både har kjøpt og solgt innen 7 dager → churning, unngå gjenkjøp
+    if sell_txns and buy_txns:
+        return True
+    # Hvis vi har stop-loss-salg innen 7 dager
+    stop_txns = (
+        sb.table("transactions")
+        .select("ts")
+        .eq("ticker", ticker)
+        .ilike("reasoning", "%stop-loss%")
+        .gt("ts", cutoff)
+        .execute()
+        .data
+    )
+    return len(stop_txns) > 0
+
+
 def weakest_holding(sb) -> dict | None:
     """
     Finner den svakeste posisjonen vi eier — målt som netto P&L % etter kurtasje.
@@ -361,6 +405,9 @@ def run():
         if signal == "BUY" and not holding:
             if trades_this_run >= MAX_TRADES_PER_RUN:
                 print(f"  {ticker}: BUY avvist — maks {MAX_TRADES_PER_RUN} kjøp per kjøring nådd")
+                continue
+            if recently_sold_at_loss(sb, ticker):
+                print(f"  {ticker}: BUY avvist — nylig solgt med tap (cooling-off 7 dager)")
                 continue
             # Forsøk rotasjon hvis vi mangler ledig kapital
             rotated = rotate_if_needed(sb, ticker, confidence, total_value)

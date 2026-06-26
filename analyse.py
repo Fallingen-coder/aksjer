@@ -132,11 +132,24 @@ def get_insider_news(news: list[dict]) -> str:
     return "Innsidehandler i nyhetene:\n" + "\n".join(f"- {h}" for h in hits)
 
 
+def _yf_download(ticker: str, **kwargs):
+    """yfinance-nedlasting med én retry ved 401-feil (ugyldig crumb)."""
+    import time
+    try:
+        df = yf.download(ticker, **kwargs)
+        if df.empty:
+            time.sleep(2)
+            df = yf.download(ticker, **kwargs)
+        return df
+    except Exception:
+        return None
+
+
 def get_52week(ticker: str) -> str:
     """Henter 52-ukers høy/lav og beregner hvor i området aksjen er nå."""
     try:
-        df = yf.download(ticker, period="52wk", auto_adjust=True, progress=False)
-        if df.empty:
+        df = _yf_download(ticker, period="52wk", auto_adjust=True, progress=False)
+        if df is None or df.empty:
             return ""
         close = df["Close"].iloc[:, 0] if df["Close"].ndim > 1 else df["Close"]
         high52 = float(close.max())
@@ -156,9 +169,9 @@ def get_52week(ticker: str) -> str:
 def get_relative_strength(ticker: str) -> str:
     """Sammenligner aksjen mot OSEBX siste 5 dager."""
     try:
-        df_stock = yf.download(ticker,   period="5d", auto_adjust=True, progress=False)
-        df_index = yf.download("OSEBX.OL", period="5d", auto_adjust=True, progress=False)
-        if df_stock.empty or df_index.empty:
+        df_stock = _yf_download(ticker,      period="5d", auto_adjust=True, progress=False)
+        df_index = _yf_download("OSEBX.OL", period="5d", auto_adjust=True, progress=False)
+        if df_stock is None or df_index is None or df_stock.empty or df_index.empty:
             return ""
 
         s = df_stock["Close"].iloc[:, 0] if df_stock["Close"].ndim > 1 else df_stock["Close"]
