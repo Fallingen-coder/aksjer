@@ -7,7 +7,7 @@ from db import get_client
 MAX_POSITION_PCT    = 0.10  # maks 10% av total porteføljeverdi per aksje
 MAX_TOTAL_EXPOSURE  = 0.80  # maks 80% av porteføljen investert samtidig
 MAX_TRADES_PER_RUN  = 3     # maks antall nye kjøp per kjøring (sikkerhetssperre)
-MIN_CONFIDENCE      = 0.65  # ignorer signaler under 65% konfidens
+MIN_CONFIDENCE      = 0.70  # ignorer signaler under 70% konfidens
 STOP_LOSS_PCT       = 0.07  # selg automatisk ved 7% tap
 MAX_PER_SECTOR      = 2     # maks antall posisjoner per sektor samtidig
 
