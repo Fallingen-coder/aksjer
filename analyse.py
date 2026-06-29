@@ -132,26 +132,36 @@ def get_insider_news(news: list[dict]) -> str:
     return "Innsidehandler i nyhetene:\n" + "\n".join(f"- {h}" for h in hits)
 
 
-def _yf_download(ticker: str, **kwargs):
-    """yfinance-nedlasting med én retry ved 401-feil (ugyldig crumb)."""
+import threading as _threading
+_yf_semaphore = _threading.Semaphore(3)  # maks 3 samtidige yfinance-kall
+
+
+def _yf_history(ticker: str, period: str):
+    """Henter kurshistorikk via Ticker.history() med retry ved 401-feil."""
     import time
-    try:
-        df = yf.download(ticker, **kwargs)
-        if df.empty:
-            time.sleep(2)
-            df = yf.download(ticker, **kwargs)
-        return df
-    except Exception:
-        return None
+    for attempt in range(4):
+        try:
+            with _yf_semaphore:
+                df = yf.Ticker(ticker).history(period=period, auto_adjust=True)
+            if df is not None and not df.empty:
+                return df
+            time.sleep(1 + attempt)
+        except Exception as e:
+            err = str(e)
+            if "401" in err or "Unauthorized" in err or "crumb" in err.lower():
+                time.sleep(3 * (attempt + 1))
+                continue
+            return None
+    return None
 
 
 def get_52week(ticker: str) -> str:
     """Henter 52-ukers høy/lav og beregner hvor i området aksjen er nå."""
     try:
-        df = _yf_download(ticker, period="52wk", auto_adjust=True, progress=False)
+        df = _yf_history(ticker, "52wk")
         if df is None or df.empty:
             return ""
-        close = df["Close"].iloc[:, 0] if df["Close"].ndim > 1 else df["Close"]
+        close  = df["Close"]
         high52 = float(close.max())
         low52  = float(close.min())
         now    = float(close.iloc[-1])
@@ -169,13 +179,13 @@ def get_52week(ticker: str) -> str:
 def get_relative_strength(ticker: str) -> str:
     """Sammenligner aksjen mot OSEBX siste 5 dager."""
     try:
-        df_stock = _yf_download(ticker,      period="5d", auto_adjust=True, progress=False)
-        df_index = _yf_download("OSEBX.OL", period="5d", auto_adjust=True, progress=False)
+        df_stock = _yf_history(ticker,     "5d")
+        df_index = _yf_history("OSEBX.OL", "5d")
         if df_stock is None or df_index is None or df_stock.empty or df_index.empty:
             return ""
 
-        s = df_stock["Close"].iloc[:, 0] if df_stock["Close"].ndim > 1 else df_stock["Close"]
-        i = df_index["Close"].iloc[:, 0] if df_index["Close"].ndim > 1 else df_index["Close"]
+        s = df_stock["Close"]
+        i = df_index["Close"]
 
         stock_ret = (float(s.iloc[-1]) / float(s.iloc[0]) - 1) * 100
         index_ret = (float(i.iloc[-1]) / float(i.iloc[0]) - 1) * 100
