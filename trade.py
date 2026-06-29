@@ -250,7 +250,7 @@ def recently_sold_at_loss(sb, ticker: str, days: int = 7) -> bool:
         sb.table("transactions")
         .select("ts")
         .eq("ticker", ticker)
-        .ilike("reasoning", "%stop-loss%")
+        .ilike("reason", "%stop-loss%")
         .gt("ts", cutoff)
         .execute()
         .data
