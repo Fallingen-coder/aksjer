@@ -34,9 +34,16 @@ def load_data():
 
     holdings = sb.table("portfolio").select("*").execute().data
 
-    # Siste kurs per ticker
-    all_prices = sb.table("prices").select("ticker, date, close").execute().data
+    # Siste kurs per ticker — foretrekk intradag, fall tilbake til dagskurs
+    intraday = sb.table("intraday_prices").select("ticker, ts, close").execute().data
     latest_price = {}
+    for r in intraday:
+        t = r["ticker"]
+        if t not in latest_price or r["ts"] > latest_price[t].get("ts", ""):
+            latest_price[t] = {"close": r["close"], "date": r["ts"][:10], "ts": r["ts"]}
+
+    # Fyll inn manglende tickers fra dagskurs
+    all_prices = sb.table("prices").select("ticker, date, close").execute().data
     for r in all_prices:
         t = r["ticker"]
         if t not in latest_price or r["date"] > latest_price[t]["date"]:
@@ -79,7 +86,7 @@ def load_data():
             seen.add(s["ticker"])
             signals.append(s)
 
-    # Kurshistorikk (30 dager) per ticker
+    # Kurshistorikk (30 dager) per ticker — fra dagskurs
     price_history = {}
     for r in all_prices:
         t = r["ticker"]
