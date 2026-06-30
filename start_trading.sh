@@ -2,7 +2,7 @@
 # start_trading.sh — Kjør handelssystemet hvert 10. minutt i børstid
 # Bruk: ./start_trading.sh
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -48,19 +48,19 @@ run_once() {
   echo "━━━ $now ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   echo "📊 Henter intradag-kurser..."
-  python3 fetch_intraday.py
+  python3 fetch_intraday.py || echo "⚠ fetch_intraday feilet, fortsetter..."
 
   echo "📰 Henter nyheter..."
-  python3 fetch_news.py
+  python3 fetch_news.py || echo "⚠ fetch_news feilet, fortsetter..."
 
   echo "🤖 AI-analyse..."
-  python3 analyse.py
+  python3 analyse.py || echo "⚠ analyse feilet, fortsetter..."
 
   echo "💼 Papirhandel..."
-  python3 trade.py
+  python3 trade.py || echo "⚠ trade feilet, fortsetter..."
 
   echo "📈 Oppdaterer performance..."
-  python3 performance.py
+  python3 performance.py || echo "⚠ performance feilet, fortsetter..."
 
   echo "✓ Ferdig kl $(date '+%H:%M:%S')"
   echo ""
