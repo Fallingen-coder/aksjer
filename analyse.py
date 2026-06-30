@@ -210,7 +210,7 @@ def get_news(sb, ticker: str) -> list[dict]:
         .select("title, summary, source, fetched_at")
         .eq("ticker", ticker)
         .order("fetched_at", desc=True)
-        .limit(5)
+        .limit(10)
         .execute()
         .data
     )

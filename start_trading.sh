@@ -50,6 +50,9 @@ run_once() {
   echo "📊 Henter intradag-kurser..."
   python3 fetch_intraday.py || echo "⚠ fetch_intraday feilet, fortsetter..."
 
+  echo "🌍 Henter makrodata..."
+  python3 fetch_macro.py || echo "⚠ fetch_macro feilet, fortsetter..."
+
   echo "📰 Henter nyheter..."
   python3 fetch_news.py || echo "⚠ fetch_news feilet, fortsetter..."
 
