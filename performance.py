@@ -1,7 +1,4 @@
-"""
-Beregner treffraten til AI-signalene.
-For hvert BUY-signal: sjekk om kursen var høyere 1t, 4t og 1 dag senere.
-"""
+"""Viser P&L for åpne posisjoner og total porteføljestatus."""
 
 from db import get_client
 
@@ -9,118 +6,94 @@ from db import get_client
 def run():
     sb = get_client()
 
-    # Hent alle kjøpstransaksjoner
-    buys = (
-        sb.table("transactions")
-        .select("ticker, price, ts")
-        .eq("action", "BUY")
-        .order("ts", desc=False)
+    # Hent kun åpne posisjoner fra portfolio-tabellen
+    portfolio = (
+        sb.table("portfolio")
+        .select("ticker, shares, avg_cost")
+        .gt("shares", 0)
+        .order("ticker")
         .execute()
         .data
     )
 
-    if not buys:
-        print("Ingen kjøp å evaluere ennå.")
+    if not portfolio:
+        print("Ingen åpne posisjoner.")
         return
 
     results = []
-    for buy in buys:
-        ticker    = buy["ticker"]
-        buy_price = float(buy["price"])
-        buy_ts    = buy["ts"]
+    pending = []
 
-        # Hent kurser ETTER kjøpet (intradag)
-        later = (
+    for pos in portfolio:
+        ticker    = pos["ticker"]
+        shares    = float(pos["shares"])
+        avg_cost  = float(pos["avg_cost"])
+
+        # Hent siste intradag-kurs
+        latest_row = (
             sb.table("intraday_prices")
-            .select("ts, close")
+            .select("close")
             .eq("ticker", ticker)
-            .gt("ts", buy_ts)
-            .order("ts", desc=False)
+            .order("ts", desc=True)
+            .limit(1)
             .execute()
             .data
         )
 
-        if not later:
+        if not latest_row:
             # Prøv dagskurs
-            later = (
+            latest_row = (
                 sb.table("prices")
-                .select("date, close")
+                .select("close")
                 .eq("ticker", ticker)
-                .gt("date", buy_ts[:10])
-                .order("date", desc=False)
+                .order("date", desc=True)
+                .limit(1)
                 .execute()
                 .data
             )
 
-        if not later:
-            results.append({
-                "ticker": ticker, "buy_price": buy_price, "buy_ts": buy_ts,
-                "outcome": "ingen data ennå"
-            })
+        if not latest_row:
+            pending.append(ticker)
             continue
 
-        # Finn pris nærmest 1t, 4t og sluttkurs
-        checkpoints = {}
-        for candle in later:
-            ts_str = candle.get("ts") or candle.get("date", "")
-            close  = float(candle["close"])
-            checkpoints[ts_str] = close
+        latest_price = float(latest_row[0]["close"])
+        pnl_pct      = (latest_price / avg_cost - 1) * 100
+        pnl_nok      = (latest_price - avg_cost) * shares
 
-        prices_after = list(checkpoints.values())
-        latest_price = prices_after[-1] if prices_after else None
+        results.append({
+            "ticker":       ticker,
+            "shares":       shares,
+            "avg_cost":     avg_cost,
+            "latest_price": latest_price,
+            "pnl_pct":      pnl_pct,
+            "pnl_nok":      pnl_nok,
+            "win":          latest_price > avg_cost,
+        })
 
-        if latest_price:
-            pnl_pct = (latest_price / buy_price - 1) * 100
-            win = latest_price > buy_price
-            results.append({
-                "ticker":    ticker,
-                "buy_ts":    buy_ts[:16],
-                "buy_price": buy_price,
-                "last_price": latest_price,
-                "pnl_pct":   pnl_pct,
-                "win":       win,
-            })
-        else:
-            results.append({
-                "ticker": ticker, "buy_price": buy_price, "buy_ts": buy_ts,
-                "outcome": "ingen data ennå"
-            })
+    # Hent kontanter og totalverdi
+    cash_row = sb.table("cash").select("amount").eq("id", 1).single().execute().data
+    cash = float(cash_row["amount"]) if cash_row else 0.0
+    invested = sum(r["latest_price"] * r["shares"] for r in results)
+    total    = cash + invested
 
-    # Oppsummering
-    evaluated = [r for r in results if "win" in r]
-    pending   = [r for r in results if "win" not in r]
-
-    print(f"{'Ticker':<12} {'Kjøpt':<17} {'Kjøpskurs':>10} {'Nå':>10} {'P&L':>8}  Resultat")
+    print(f"{'Ticker':<12} {'Snitt kjøp':>10} {'Nå':>10} {'P&L %':>8} {'P&L NOK':>10}  Status")
     print("-" * 70)
-    for r in evaluated:
+    for r in results:
         sign = "+" if r["pnl_pct"] >= 0 else ""
         icon = "✓" if r["win"] else "✗"
-        print(f"  {r['ticker']:<10} {r['buy_ts']:<17} {r['buy_price']:>10.2f} {r['last_price']:>10.2f} {sign}{r['pnl_pct']:>6.1f}%  {icon}")
+        print(
+            f"  {r['ticker']:<10} {r['avg_cost']:>10.2f} {r['latest_price']:>10.2f} "
+            f"{sign}{r['pnl_pct']:>6.1f}% {sign}{r['pnl_nok']:>9.0f}  {icon}"
+        )
 
     if pending:
-        print(f"\n  {len(pending)} kjøp venter på kursdata: {', '.join(r['ticker'] for r in pending)}")
+        print(f"\n  Venter på kursdata: {', '.join(pending)}")
 
-    if evaluated:
-        wins     = sum(1 for r in evaluated if r["win"])
-        total    = len(evaluated)
-        tot_pnl  = sum(r["pnl_pct"] for r in evaluated) / total
-        print(f"\n  Treffraten: {wins}/{total} ({wins/total:.0%})  |  Snitt P&L per handel: {'+' if tot_pnl >= 0 else ''}{tot_pnl:.1f}%")
+    if results:
+        wins  = sum(1 for r in results if r["win"])
+        total_count = len(results)
+        print(f"\n  Åpne posisjoner: {total_count} | I pluss: {wins} | I minus: {total_count - wins}")
 
-        # Lagre i Supabase
-        sb.table("performance_log").upsert(
-            [
-                {
-                    "ticker":     r["ticker"],
-                    "buy_ts":     r["buy_ts"],
-                    "buy_price":  r["buy_price"],
-                    "last_price": r["last_price"],
-                    "pnl_pct":    round(r["pnl_pct"], 2),
-                    "win":        r["win"],
-                }
-                for r in evaluated
-            ],
-            on_conflict="ticker,buy_ts",
-        ).execute()
+    print(f"\n  Kontanter: {cash:,.0f} NOK | Investert: {invested:,.0f} NOK | Total: {total:,.0f} NOK")
 
 
 if __name__ == "__main__":
