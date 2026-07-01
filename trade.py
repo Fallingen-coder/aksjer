@@ -338,6 +338,34 @@ def rotate_if_needed(sb, new_ticker: str, new_confidence: float, total_value: fl
     return True
 
 
+def peak_price_since_buy(sb, ticker: str) -> float | None:
+    """Høyeste intradag-kurs siden første kjøp — brukes til trailing stop-loss."""
+    buy_tx = (
+        sb.table("transactions")
+        .select("ts")
+        .eq("ticker", ticker)
+        .eq("action", "BUY")
+        .order("ts", desc=False)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not buy_tx:
+        return None
+    buy_ts = buy_tx[0]["ts"]
+    rows = (
+        sb.table("intraday_prices")
+        .select("close")
+        .eq("ticker", ticker)
+        .gte("ts", buy_ts)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    return max(float(r["close"]) for r in rows)
+
+
 def check_stop_losses(sb, total_value: float):
     holdings = sb.table("portfolio").select("*").execute().data
     for h in holdings:
@@ -345,10 +373,21 @@ def check_stop_losses(sb, total_value: float):
         if not price:
             continue
         avg = float(h["avg_cost"])
-        loss_pct = (avg - price) / avg
+
+        # Trailing stop: bruk høyeste kurs siden kjøp som referanse
+        peak = peak_price_since_buy(sb, h["ticker"])
+        if peak is None or peak < avg:
+            peak = avg  # fall tilbake til kjøpskurs hvis ingen toppkurs
+
+        loss_pct = (peak - price) / peak
         if loss_pct >= STOP_LOSS_PCT:
-            print(f"  STOP-LOSS utløst for {h['ticker']} (kjøpt @ {avg:.2f}, nå {price:.2f}, -{loss_pct*100:.1f}%)")
-            sell(sb, h["ticker"], price, f"Stop-loss utløst ved -{loss_pct*100:.1f}%", force=True)
+            print(f"  TRAILING STOP utløst for {h['ticker']} (topp @ {peak:.2f}, nå {price:.2f}, -{loss_pct*100:.1f}% fra topp)")
+            sell(sb, h["ticker"], price, f"Trailing stop utløst ved -{loss_pct*100:.1f}% fra topp ({peak:.2f})", force=True)
+        elif (avg - price) / avg >= STOP_LOSS_PCT:
+            # Behold også vanlig stop-loss fra kjøpskurs som sikkerhetsnett
+            loss_from_cost = (avg - price) / avg
+            print(f"  STOP-LOSS utløst for {h['ticker']} (kjøpt @ {avg:.2f}, nå {price:.2f}, -{loss_from_cost*100:.1f}%)")
+            sell(sb, h["ticker"], price, f"Stop-loss utløst ved -{loss_from_cost*100:.1f}%", force=True)
 
 
 def run():
