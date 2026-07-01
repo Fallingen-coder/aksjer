@@ -206,3 +206,24 @@ Bruk dette hierarkiet når du vurderer BUY/SELL/HOLD:
 ---
 
 *Kilder: QuantifiedStrategies, Wealthsimple, LuxAlgo, TradingSim, TradeAtSwing, ACY Markets, MDPI (finansforskning)*
+
+---
+
+<!-- AUTO-LÆRDOMMER START -->
+## 10. Lærdommer fra egen handelshistorikk (auto-generert 2026-07-01)
+
+Disse lærdommene er destillert fra systemets egne signaler målt mot faktisk
+kursutvikling. Vektlegg dem når du setter konfidens på nye signaler.
+
+- Unngå BUY-signaler på sjømat og shipping helt – disse sektorene har 0 % treffsikkerhet og massive negative avkastninger (gjennomsnitt -11 %, -7 %), noe som tyder på systematiske modellfeil for disse aksjene.
+
+- Øk tilliten til høyeste konfidensnivå (80–100 %) da disse treffer betydelig oftere (69 % vs. 51–53 %), selv om avkastningen per signal er lav – fokuser på kvalitet over kvantitet her.
+
+- SALM.OL er en systematisk feilkilde – fem av fem dårligste signaler er denne aksjen med BUY-anbefalinger som resulteterte i −15 %. Eksluder denne eller omvurder modelleringen for sjømatsektor helt.
+
+- SELL-signaler på fornybar, tech og sjømat treffer perfekt (100 %) – disse sektorene har sterk nedsideprediksjon og bør vektes høyere eller ekspanderes, mens SELL-signaler på finans aldri treffer (0 %) og bør ignoreres.
+
+- Diversifiserte aksjer treffer bedre på BUY (100 %, +13,4 %) enn spesialiserte – vurder om modellen har sterkere prediksjonskraft på bredere, mer likvide papirer.
+
+- Energi og industri er moderat pålitelige for BUY (70 % og 59 %), mens finans er svak (46 %) – fokuser BUY-ressurser på energi og industri, reduser eller omvurder finans-signaler.
+<!-- AUTO-LÆRDOMMER END -->
