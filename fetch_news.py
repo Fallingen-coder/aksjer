@@ -61,6 +61,72 @@ TICKER_KEYWORDS = {
 }
 
 E24_FEED = "https://e24.no/feed/rss/"
+NEWSWEB_API = "https://api3.oslo.oslobors.no/v1/newsreader/list"
+
+# NewsWeb-kategorier som er mest kurssensitive
+NEWSWEB_PRIORITY = {
+    "INSIDE INFORMATION",
+    "MANDATORY NOTIFICATION OF TRADE",   # innsidehandler
+    "FINANCIAL REPORTING",
+    "HALF YEARLY FINANCIAL REPORTS AND AUDIT REPORTS / LIMITED REVIEWS",
+    "EX DIVIDEND DATE",
+    "MERGERS AND ACQUISITIONS",
+    "PROFIT WARNING",
+    "ISSUANCE OF SECURITIES",
+}
+
+
+def fetch_newsweb(sb, tickers: list[str]) -> int:
+    """Henter offisielle børsmeldinger fra Oslo Børs NewsWeb (siste 2 dager)."""
+    from datetime import date
+    saved = 0
+    ticker_set = {t.replace(".OL", "") for t in tickers}
+    try:
+        from_date = (date.today() - timedelta(days=2)).isoformat()
+        r = requests.get(
+            NEWSWEB_API,
+            params={"fromDate": from_date},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        messages = r.json()["data"]["messages"]
+    except Exception as e:
+        print(f"  NewsWeb: feil — {e}")
+        return 0
+
+    # Grupper per ticker slik at vi kan dedupe mot eksisterende titler
+    by_ticker: dict[str, list[dict]] = {}
+    for m in messages:
+        sign = m.get("issuerSign", "")
+        if m.get("test") or sign not in ticker_set:
+            continue
+        cats = {c.get("category_en", "") for c in m.get("category", [])}
+        prioritized = bool(cats & NEWSWEB_PRIORITY)
+        by_ticker.setdefault(sign + ".OL", []).append({
+            "title":  m.get("title", "").strip(),
+            "cats":   ", ".join(sorted(cats)) or "Børsmelding",
+            "ts":     m.get("publishedTime", datetime.now(timezone.utc).isoformat()),
+            "msg_id": m.get("messageId", ""),
+            "pri":    prioritized,
+        })
+
+    for ticker, msgs in by_ticker.items():
+        existing = {
+            r["title"]
+            for r in sb.table("news").select("title").eq("ticker", ticker).execute().data
+        }
+        for m in msgs:
+            if not m["title"]:
+                continue
+            url = f"https://newsweb.oslobors.no/message/{m['msg_id']}" if m["msg_id"] else ""
+            prefix = "⚠ " if m["pri"] else ""
+            if _insert(sb, ticker, m["title"], url,
+                       f"{prefix}Børsmelding [{m['cats']}]",
+                       "NewsWeb", m["ts"], existing):
+                saved += 1
+    if saved:
+        print(f"  NewsWeb: {saved} børsmeldinger lagret")
+    return saved
 
 
 def parse_date(entry) -> str:
@@ -150,7 +216,7 @@ def fetch_e24_news(sb, ticker: str, existing: set) -> int:
 def run():
     sb = get_client()
     print("Henter nyheter for Oslo Børs-tickers...\n")
-    total = 0
+    total = fetch_newsweb(sb, TICKERS)
     for ticker in TICKERS:
         existing = {
             r["title"]
