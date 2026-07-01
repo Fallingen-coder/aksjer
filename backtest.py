@@ -6,9 +6,13 @@ med konfigurerbare parametere. Brukes til å teste parameterendringer
 Bruk:
   python3 backtest.py            # kjør parametergrid og sammenlign
   python3 backtest.py --single   # kjør kun dagens parametre
+  python3 backtest.py --report   # skriv resultatet til backtest_report.md
 """
 
+import io
+import os
 import sys
+from datetime import datetime, timezone
 from collections import defaultdict
 from db import get_client
 from trade import SECTORS, kurtasje
@@ -183,8 +187,10 @@ def main():
         return
 
     # Parametergrid
-    print(f"{'Stop':>5} {'Trail':>6} {'Konf':>5} | {'Sluttverdi':>12} {'Avkastn.':>9} {'Salg':>5} {'Vinn':>5} {'Åpne':>5}")
-    print("-" * 65)
+    out = io.StringIO()
+    results = []
+    out.write(f"{'Stop':>5} {'Trail':>6} {'Konf':>5} | {'Sluttverdi':>12} {'Avkastn.':>9} {'Salg':>5} {'Vinn':>5} {'Åpne':>5}\n")
+    out.write("-" * 65 + "\n")
     for stop in [0.05, 0.07, 0.10]:
         for trailing in [True, False]:
             for conf in [0.70, 0.75, 0.80]:
@@ -194,14 +200,45 @@ def main():
                     "min_confidence": conf,
                 }
                 r = run_backtest(signals, series, params)
+                results.append(((stop, trailing, conf), r))
                 star = " ← dagens" if (stop, trailing, conf) == (0.07, True, 0.70) else ""
-                print(
+                out.write(
                     f"{stop:>5.0%} {'ja' if trailing else 'nei':>6} {conf:>5.0%} | "
                     f"{r['end_value']:>12,.0f} {r['return_pct']:>+8.2f}% "
-                    f"{r['trades']:>5} {r['wins']:>5} {r['open_pos']:>5}{star}"
+                    f"{r['trades']:>5} {r['wins']:>5} {r['open_pos']:>5}{star}\n"
                 )
+    table = out.getvalue()
+    print(table)
+    print("NB: kort historikk — resultatene er indikative, ikke statistisk robuste.")
 
-    print("\nNB: kort historikk (~1 uke) — resultatene er indikative, ikke statistisk robuste.")
+    if "--report" in sys.argv:
+        best = max(results, key=lambda x: x[1]["return_pct"])
+        (b_stop, b_trail, b_conf), b_r = best
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        report = f"""# Backtest-rapport ({today})
+
+Auto-generert hver søndag av GitHub Actions. Replayer alle lagrede
+AI-signaler ({len(signals)} stk over {n_days} børsdager) mot faktisk kurshistorikk.
+
+## Parametergrid
+
+```
+{table}```
+
+## Beste kombinasjon
+
+Stop-loss {b_stop:.0%}, trailing {'ja' if b_trail else 'nei'}, konfidensterskel {b_conf:.0%}
+→ {b_r['end_value']:,.0f} NOK ({b_r['return_pct']:+.2f}%)
+
+Dagens produksjonsparametre: stop-loss 7%, trailing ja, konfidens 70%.
+
+*NB: kort historikk gir indikative resultater. Ikke endre parametre basert
+på én ukes data — se etter mønstre som holder seg over flere uker.*
+"""
+        path = os.path.join(os.path.dirname(__file__), "backtest_report.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"✓ Rapport skrevet til backtest_report.md")
 
 
 if __name__ == "__main__":

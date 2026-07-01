@@ -27,14 +27,20 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python evaluate_signals.py
 
-      - name: Commit oppdatert trading_knowledge.md
+      - name: Kjør backtest med parametergrid
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python backtest.py --report
+
+      - name: Commit oppdatert kunnskapsbase og backtest-rapport
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet trading_knowledge.md; then
-            git add trading_knowledge.md
-            git commit -m "Auto: ukentlige lærdommer fra signalevaluering"
+          git add trading_knowledge.md backtest_report.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto: ukentlig signalevaluering og backtest"
             git push
           else
-            echo "Ingen endringer i kunnskapsbasen."
+            echo "Ingen endringer."
           fi
