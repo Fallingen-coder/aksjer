@@ -227,35 +227,29 @@ def recently_sold_at_loss(sb, ticker: str, days: int = 7) -> bool:
         .execute()
         .data
     )
-    for tx in txns:
-        # Finn tilhørende kjøpspris fra portfolio-historikk — enklere: sjekk om det finnes et tap-salg
-        # Vi bruker reasoning-feltet som inneholder "Stop-loss" eller negativt P&L
-        pass
-    # Sjekk om vi har solgt og kjøpt igjen innen kortere tid enn 7 dager
-    buy_txns = (
+    if not txns:
+        return False
+
+    # Finn kjøpsprisen som gjaldt før siste salg — salg med gevinst
+    # skal IKKE utløse cooling-off (kun tapssalg er et faresignal)
+    last_sell = max(txns, key=lambda t: t["ts"])
+    buys_before = (
         sb.table("transactions")
-        .select("ts")
+        .select("price, ts")
         .eq("ticker", ticker)
         .eq("action", "BUY")
-        .gt("ts", cutoff)
+        .lt("ts", last_sell["ts"])
+        .order("ts", desc=True)
+        .limit(1)
         .execute()
         .data
     )
-    sell_txns = txns
-    # Hvis vi både har kjøpt og solgt innen 7 dager → churning, unngå gjenkjøp
-    if sell_txns and buy_txns:
-        return True
-    # Hvis vi har stop-loss-salg innen 7 dager
-    stop_txns = (
-        sb.table("transactions")
-        .select("ts")
-        .eq("ticker", ticker)
-        .ilike("reason", "%stop-loss%")
-        .gt("ts", cutoff)
-        .execute()
-        .data
-    )
-    return len(stop_txns) > 0
+    if not buys_before:
+        return False
+
+    # Netto tap: salgskurs under kjøpskurs + kurtasjemargin (rå priser ekskluderer gebyr)
+    breakeven = float(buys_before[0]["price"]) * (1 + MIN_PROFIT_AFTER_FEES_PCT)
+    return float(last_sell["price"]) < breakeven
 
 
 def weakest_holding(sb) -> dict | None:
