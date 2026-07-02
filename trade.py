@@ -333,6 +333,18 @@ def rotate_if_needed(sb, new_ticker: str, new_confidence: float, total_value: fl
         print(f"  ROTASJON avbrutt: tap på {worst_pnl:+.1f}% krever konfidens ≥ {min_confidence:.0%}, har {new_confidence:.0%}")
         return False
 
+    # Sjekk at kjøpet faktisk kan gjennomføres FØR vi realiserer tapet —
+    # ellers selger vi en posisjon uten å få noe bedre igjen
+    sektor, antall = sector_count(sb, new_ticker)
+    if worst_ticker != new_ticker and SECTORS.get(worst_ticker, "") == sektor:
+        antall -= 1  # salget frigjør en plass i samme sektor
+    if sektor != "ukjent" and antall >= MAX_PER_SECTOR:
+        print(f"  ROTASJON avbrutt: {new_ticker} ville brutt sektortaket ({antall} i '{sektor}')")
+        return False
+    if recently_sold_at_loss(sb, new_ticker):
+        print(f"  ROTASJON avbrutt: {new_ticker} er i cooling-off etter tapssalg")
+        return False
+
     print(f"  ROTASJON: selger {worst_ticker} ({worst_pnl:+.1f}%) → kjøper {new_ticker} ({new_confidence:.0%})")
     sell(sb, worst_ticker, price, f"Rotasjon — erstattes av {new_ticker} ({new_confidence:.0%})", force=True)
     return True
